@@ -47,6 +47,8 @@ FRICTION = 1.0
 JITTER_START = 0.18
 JITTER_END = 0.35
 TARGET_TIME = 60.0
+# Fraction of inner disk considered "fully cleared" for auto-save (approximate metric).
+CLEAR_COMPLETE_THRESHOLD = 0.99
 FPS = 60
 
 clock = pygame.time.Clock()
@@ -259,7 +261,9 @@ while running:
                     recording = True
                     frames = []
                     frame_counter = 0
-                    print("Recording full 60s... will auto-save when done.")
+                    print(
+                        "Recording... auto-save when time ends or area is fully cleared."
+                    )
                 else:
                     save_gif()
 
@@ -318,12 +322,17 @@ while running:
             sub_vy = vel_y / steps
             bounce_count += 1
 
-    clear_timer += dt
-    if clear_timer > 1500:
+    if recording:
         clear_pct = estimate_clear_percentage()
-        clear_timer = 0
+    else:
+        clear_timer += dt
+        if clear_timer > 1500:
+            clear_pct = estimate_clear_percentage()
+            clear_timer = 0
 
-    if recording and elapsed >= TARGET_TIME:
+    if recording and (
+        elapsed >= TARGET_TIME or clear_pct >= CLEAR_COMPLETE_THRESHOLD
+    ):
         save_gif()
 
     screen.fill(scheme["bg"])
