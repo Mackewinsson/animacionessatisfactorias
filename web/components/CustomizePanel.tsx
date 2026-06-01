@@ -152,6 +152,21 @@ export function CustomizePanel({
           disabled={disabled}
           onChange={(borderRadius) => patch({ borderRadius })}
         />
+        <label className="flex flex-col gap-1 cursor-pointer pt-1">
+          <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={config.transparentBackground}
+              disabled={disabled}
+              onChange={(e) => patch({ transparentBackground: e.target.checked })}
+              className="rounded border-zinc-700 bg-zinc-950 text-violet-600 focus:ring-violet-500 w-4 h-4 cursor-pointer"
+            />
+            <span className="text-sm font-medium text-zinc-300">Transparent background</span>
+          </div>
+          <span className="text-xs text-zinc-500 pl-6">
+            Erase arena to transparent. Ideal for Final Cut Pro and overlays.
+          </span>
+        </label>
       </section>
 
       <section className="space-y-3 border-b border-zinc-800 pb-4">

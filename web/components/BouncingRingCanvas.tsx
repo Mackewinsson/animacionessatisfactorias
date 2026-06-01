@@ -4,8 +4,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Simulation, FRAME_SKIP, WIDTH, HEIGHT } from "@/lib/simulation/Simulation";
 import { GifStreamEncoder, type GifExportResult } from "@/lib/gifExport";
 import type { StudioConfig } from "@/lib/simulation/types";
+import { PngSequenceExporter, WebMAlphaRecorder, AudioWavRecorder } from "@/lib/videoExport";
 
 let audioCtx: AudioContext | null = null;
+let activeRecordingNode: AudioNode | null = null;
+
+export function setActiveRecordingNode(node: AudioNode | null): void {
+  activeRecordingNode = node;
+}
 
 function getAudioContext(): AudioContext | null {
   if (typeof window === "undefined") return null;
@@ -42,6 +48,9 @@ function playBounceNote(config: StudioConfig, bounceCount: number, speed: number
   osc.connect(filter);
   filter.connect(gainNode);
   gainNode.connect(ctx.destination);
+  if (activeRecordingNode) {
+    gainNode.connect(activeRecordingNode);
+  }
 
   let frequency = 440;
   
@@ -152,41 +161,113 @@ function playBounceNote(config: StudioConfig, bounceCount: number, speed: number
 type Props = {
   config: StudioConfig;
   generating: boolean;
+  exportType: "gif" | "zip" | "webm";
   onGeneratingChange: (v: boolean) => void;
   onRecordingComplete: (result: GifExportResult) => void;
+  onZipComplete: (blob: Blob) => void;
+  onWebMComplete: (blob: Blob) => void;
+  onProgress?: (progressText: string) => void;
 };
 
 export function BouncingRingCanvas({
   config,
   generating,
+  exportType,
   onGeneratingChange,
   onRecordingComplete,
+  onZipComplete,
+  onWebMComplete,
+  onProgress,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const simRef = useRef<Simulation | null>(null);
   const frameCounterRef = useRef(0);
   const gifEncoderRef = useRef<GifStreamEncoder | null>(null);
+  const pngExporterRef = useRef<PngSequenceExporter | null>(null);
+  const webmRecorderRef = useRef<WebMAlphaRecorder | null>(null);
+  const audioRecorderRef = useRef<AudioWavRecorder | null>(null);
   const rafRef = useRef<number>(0);
   const lastTimeRef = useRef<number>(0);
   const [previewing, setPreviewing] = useState(true);
 
   const finishRecording = useCallback(
-    (sim: Simulation) => {
+    async (sim: Simulation) => {
       if (!sim.recording) return;
       sim.stopRecording();
-      onGeneratingChange(false);
-      const encoder = gifEncoderRef.current;
-      gifEncoderRef.current = null;
-      frameCounterRef.current = 0;
-      if (encoder) {
-        try {
-          onRecordingComplete(encoder.finish());
-        } catch {
+
+      if (exportType === "gif") {
+        const encoder = gifEncoderRef.current;
+        gifEncoderRef.current = null;
+        frameCounterRef.current = 0;
+        if (encoder) {
+          try {
+            onRecordingComplete(encoder.finish());
+            onGeneratingChange(false);
+          } catch {
+            onGeneratingChange(false);
+          }
+        } else {
+          onGeneratingChange(false);
+        }
+      } else if (exportType === "zip") {
+        const exporter = pngExporterRef.current;
+        pngExporterRef.current = null;
+        frameCounterRef.current = 0;
+
+        let audioBlob: Blob | null = null;
+        if (audioRecorderRef.current) {
+          try {
+            audioBlob = audioRecorderRef.current.stop();
+          } catch (e) {
+            console.error("Failed to compile WAV audio:", e);
+          }
+          audioRecorderRef.current = null;
+          setActiveRecordingNode(null);
+        }
+
+        if (exporter) {
+          try {
+            if (audioBlob) {
+              exporter.addAudio(audioBlob);
+            }
+            onProgress?.("Creating ZIP archive...");
+            const zipBlob = await exporter.finish((percent) => {
+              onProgress?.(`Compressing ZIP: ${percent}%`);
+            });
+            onZipComplete(zipBlob);
+            onGeneratingChange(false);
+          } catch (e) {
+            console.error("ZIP packaging failed:", e);
+            onProgress?.(e instanceof Error ? `ZIP Error: ${e.message}` : "ZIP Compilation failed.");
+            onGeneratingChange(false);
+          }
+        } else {
+          onGeneratingChange(false);
+        }
+      } else if (exportType === "webm") {
+        const recorder = webmRecorderRef.current;
+        webmRecorderRef.current = null;
+        frameCounterRef.current = 0;
+
+        setActiveRecordingNode(null);
+
+        if (recorder) {
+          try {
+            onProgress?.("Processing video file...");
+            const videoBlob = await recorder.stop();
+            onWebMComplete(videoBlob);
+            onGeneratingChange(false);
+          } catch (e) {
+            console.error("WebM recording failed:", e);
+            onProgress?.(e instanceof Error ? `WebM Error: ${e.message}` : "WebM Processing failed.");
+            onGeneratingChange(false);
+          }
+        } else {
           onGeneratingChange(false);
         }
       }
     },
-    [onGeneratingChange, onRecordingComplete],
+    [onGeneratingChange, onRecordingComplete, onZipComplete, onWebMComplete, onProgress, exportType],
   );
 
   useEffect(() => {
@@ -233,21 +314,35 @@ export function BouncingRingCanvas({
         sim.tick(time, dt);
       }
 
+      sim.draw(ctx);
+
       if (generating && sim.recording) {
         frameCounterRef.current += 1;
         if (frameCounterRef.current % FRAME_SKIP === 0) {
-          gifEncoderRef.current?.addFrame(sim.captureTransparentFrame());
+          if (exportType === "gif") {
+            gifEncoderRef.current?.addFrame(sim.captureTransparentFrame());
+          } else if (exportType === "zip") {
+            const dataUrl = canvas.toDataURL("image/png");
+            pngExporterRef.current?.addFrame(dataUrl);
+            const recordedFrames = pngExporterRef.current?.getFrameCount() ?? 0;
+            onProgress?.(`Captured frame ${recordedFrames}`);
+          } else if (exportType === "webm") {
+            onProgress?.(`Recording transparent video (Frame ${frameCounterRef.current})`);
+          }
         }
 
         if (sim.isRecordingComplete()) {
           if (frameCounterRef.current % FRAME_SKIP !== 0) {
-            gifEncoderRef.current?.addFrame(sim.captureTransparentFrame());
+            if (exportType === "gif") {
+              gifEncoderRef.current?.addFrame(sim.captureTransparentFrame());
+            } else if (exportType === "zip") {
+              const dataUrl = canvas.toDataURL("image/png");
+              pngExporterRef.current?.addFrame(dataUrl);
+            }
           }
-          finishRecording(sim);
+          void finishRecording(sim);
         }
       }
-
-      sim.draw(ctx);
 
       // Freeze when simulation is complete and all chimes and confetti animations have finished
       if (sim.isComplete && !generating && !sim.shouldAnimate()) {
@@ -258,7 +353,7 @@ export function BouncingRingCanvas({
         rafRef.current = requestAnimationFrame(loop);
       }
     },
-    [config, generating, finishRecording, previewing],
+    [generating, finishRecording, previewing, exportType, onProgress],
   );
 
   useEffect(() => {
@@ -269,13 +364,37 @@ export function BouncingRingCanvas({
   useEffect(() => {
     if (!generating) return;
     const sim = simRef.current;
-    if (!sim) return;
-    gifEncoderRef.current = new GifStreamEncoder();
+    const canvas = canvasRef.current;
+    if (!sim || !canvas) return;
+
     frameCounterRef.current = 0;
     lastTimeRef.current = 0;
+
+    const audioCtx = getAudioContext();
+
+    if (exportType === "gif") {
+      gifEncoderRef.current = new GifStreamEncoder();
+    } else if (exportType === "zip") {
+      pngExporterRef.current = new PngSequenceExporter();
+      if (audioCtx) {
+        audioRecorderRef.current = new AudioWavRecorder(audioCtx);
+        audioRecorderRef.current.start();
+        setActiveRecordingNode(audioRecorderRef.current.getProcessorNode());
+      }
+    } else if (exportType === "webm") {
+      let audioStream: MediaStream | undefined;
+      if (audioCtx) {
+        const dest = audioCtx.createMediaStreamDestination();
+        setActiveRecordingNode(dest);
+        audioStream = dest.stream;
+      }
+      webmRecorderRef.current = new WebMAlphaRecorder(canvas, 30, audioStream);
+      webmRecorderRef.current.start();
+    }
+
     sim.startRecording();
     rafRef.current = requestAnimationFrame(loop);
-  }, [generating, loop]);
+  }, [generating, loop, exportType]);
 
   const handleReset = () => {
     const sim = simRef.current;
@@ -292,7 +411,9 @@ export function BouncingRingCanvas({
         width={WIDTH}
         height={HEIGHT}
         onClick={resumeAudioCtx}
-        className="max-w-full h-auto rounded-xl border border-zinc-700 shadow-2xl cursor-pointer"
+        className={`max-w-full h-auto rounded-xl border border-zinc-700 shadow-2xl cursor-pointer ${
+          config.transparentBackground ? "canvas-checkerboard" : ""
+        }`}
         style={{ width: "min(100%, 800px)", aspectRatio: "1" }}
         title="Click to enable sound"
       />

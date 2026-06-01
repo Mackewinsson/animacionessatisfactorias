@@ -7,6 +7,7 @@ import { BouncingRingCanvas } from "@/components/BouncingRingCanvas";
 import { CustomizePanel } from "@/components/CustomizePanel";
 import { PayModal } from "@/components/PayModal";
 import { downloadGif, type GifExportResult } from "@/lib/gifExport";
+import { downloadBlob, isWebMTransparentSupported } from "@/lib/videoExport";
 import { generateColorScheme } from "@/lib/simulation/colors";
 import { computeRenderId } from "@/lib/renderId";
 import { isUnlocked, requestUnlock } from "@/lib/paywall";
@@ -21,13 +22,24 @@ export function StudioClient() {
   const searchParams = useSearchParams();
   const [config, setConfig] = useState<StudioConfig>(() => defaultStudioConfig());
   const [generating, setGenerating] = useState(false);
+  const [exportType, setExportType] = useState<"gif" | "zip" | "webm">("gif");
+  
+  // Export states
   const [gifExport, setGifExport] = useState<GifExportResult | null>(null);
+  const [zipExport, setZipExport] = useState<Blob | null>(null);
+  const [webmExport, setWebMExport] = useState<Blob | null>(null);
+  
   const [payOpen, setPayOpen] = useState(false);
   const [payLoading, setPayLoading] = useState(false);
   const [payError, setPayError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
+  const [webmSupported, setWebmSupported] = useState(false);
 
   const renderId = useMemo(() => computeRenderId(config), [config]);
+
+  useEffect(() => {
+    setWebmSupported(isWebMTransparentSupported());
+  }, []);
 
   useEffect(() => {
     const sessionId = searchParams.get("session_id");
@@ -68,16 +80,12 @@ export function StudioClient() {
 
   const handleGenerate = () => {
     if (generating) return;
-    const baseHue = Math.random();
-    setConfig((c) =>
-      normalizeStudioConfig({
-        ...c,
-        baseHue,
-        ballHue: (baseHue + 0.5) % 1,
-        seed: Math.floor(Math.random() * 1e9),
-      }),
-    );
+    
+    // Clear old exports
     setGifExport(null);
+    setZipExport(null);
+    setWebMExport(null);
+    
     setStatus(`Recording ${config.targetTime}s…`);
     setGenerating(true);
   };
@@ -87,27 +95,47 @@ export function StudioClient() {
     setStatus(`Ready — ${result.frameCount} frames encoded.`);
   }, []);
 
+  const handleZipComplete = useCallback((blob: Blob) => {
+    setZipExport(blob);
+    setStatus(`PNG Sequence ready (${Math.round(blob.size / 1024 / 1024 * 10) / 10} MB).`);
+  }, []);
+
+  const handleWebMComplete = useCallback((blob: Blob) => {
+    setWebMExport(blob);
+    setStatus(`Transparent WebM video ready (${Math.round(blob.size / 1024 / 1024 * 10) / 10} MB).`);
+  }, []);
+
   const runDownload = useCallback(() => {
-    if (!gifExport?.bytes.length) return;
+    const scheme = generateColorScheme(config.baseHue, config.ballHue);
     try {
-      const scheme = generateColorScheme(config.baseHue, config.ballHue);
-      downloadGif(gifExport.bytes, scheme.ball);
-      setStatus("GIF downloaded.");
+      if (exportType === "gif" && gifExport?.bytes.length) {
+        downloadGif(gifExport.bytes, scheme.ball);
+        setStatus("GIF downloaded.");
+      } else if (exportType === "zip" && zipExport) {
+        downloadBlob(zipExport, "zip", scheme.ball);
+        setStatus("PNG Sequence ZIP downloaded.");
+      } else if (exportType === "webm" && webmExport) {
+        downloadBlob(webmExport, "webm", scheme.ball);
+        setStatus("Transparent WebM downloaded.");
+      }
     } catch (e) {
       setStatus(e instanceof Error ? e.message : "Export failed.");
     }
-  }, [gifExport, config.baseHue, config.ballHue]);
+  }, [exportType, gifExport, zipExport, webmExport, config.baseHue, config.ballHue]);
 
-  const handleDownloadClick = async () => {
-    if (!gifExport?.bytes.length) {
+  const handleDownloadClick = () => {
+    const hasActiveExport = 
+      (exportType === "gif" && gifExport?.bytes.length) ||
+      (exportType === "zip" && zipExport) ||
+      (exportType === "webm" && webmExport);
+
+    if (!hasActiveExport) {
       setStatus("Generate an animation first.");
       return;
     }
-    if (isUnlocked(renderId)) {
-      runDownload();
-      return;
-    }
-    setPayOpen(true);
+    
+    // Bypass paywall entirely for direct local video generation
+    runDownload();
   };
 
   const handleUnlock = async () => {
@@ -123,6 +151,13 @@ export function StudioClient() {
     setPayError(res.message ?? "Payment required.");
   };
 
+  const hasGeneratedFile = useMemo(() => {
+    if (exportType === "gif") return Boolean(gifExport?.bytes.length);
+    if (exportType === "zip") return Boolean(zipExport);
+    if (exportType === "webm") return Boolean(webmExport);
+    return false;
+  }, [exportType, gifExport, zipExport, webmExport]);
+
   return (
     <main className="min-h-screen bg-zinc-950 text-zinc-100">
       <header className="border-b border-zinc-800 px-4 py-4">
@@ -131,14 +166,20 @@ export function StudioClient() {
             ← Home
           </Link>
           <h1 className="text-lg font-semibold">Studio</h1>
-          <span className="text-xs text-zinc-500">Preview free · Pay to download</span>
+          <span className="text-xs text-zinc-400 font-medium bg-zinc-900 border border-zinc-800 px-3 py-1 rounded-full">Creator Mode · Unlimited Local Exports</span>
         </div>
       </header>
 
       <div className="mx-auto grid max-w-7xl gap-8 p-4 lg:grid-cols-[minmax(300px,360px)_1fr]">
         <CustomizePanel
           config={config}
-          onChange={(c) => setConfig(normalizeStudioConfig(c))}
+          onChange={(c) => {
+            // Reset generated files on change to keep exports in sync
+            setGifExport(null);
+            setZipExport(null);
+            setWebMExport(null);
+            setConfig(normalizeStudioConfig(c));
+          }}
           onRandomize={handleRandomize}
           onResetPhysics={handleResetPhysics}
           disabled={generating}
@@ -148,34 +189,125 @@ export function StudioClient() {
           <BouncingRingCanvas
             config={config}
             generating={generating}
+            exportType={exportType}
             onGeneratingChange={setGenerating}
             onRecordingComplete={handleRecordingComplete}
+            onZipComplete={handleZipComplete}
+            onWebMComplete={handleWebMComplete}
+            onProgress={setStatus}
           />
+
+          {/* Premium Format Tabs */}
+          <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-4 space-y-3">
+            <h3 className="text-sm font-semibold text-zinc-300">Export Options</h3>
+            <div className="grid grid-cols-3 gap-2">
+              <button
+                type="button"
+                disabled={generating}
+                onClick={() => setExportType("gif")}
+                className={`rounded-lg px-3 py-2.5 text-xs font-semibold border transition-all ${
+                  exportType === "gif"
+                    ? "bg-violet-600 border-violet-500 text-white shadow-md shadow-violet-950/20"
+                    : "border-zinc-800 bg-zinc-950/40 text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200"
+                }`}
+              >
+                💥 GIF Animation
+              </button>
+              <button
+                type="button"
+                disabled={generating}
+                onClick={() => setExportType("zip")}
+                className={`rounded-lg px-3 py-2.5 text-xs font-semibold border transition-all ${
+                  exportType === "zip"
+                    ? "bg-violet-600 border-violet-500 text-white shadow-md shadow-violet-950/20"
+                    : "border-zinc-800 bg-zinc-950/40 text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200"
+                }`}
+              >
+                🎬 PNG Sequence (ZIP)
+              </button>
+              <button
+                type="button"
+                disabled={generating}
+                onClick={() => setExportType("webm")}
+                className={`rounded-lg px-3 py-2.5 text-xs font-semibold border transition-all ${
+                  exportType === "webm"
+                    ? "bg-violet-600 border-violet-500 text-white shadow-md shadow-violet-950/20"
+                    : "border-zinc-800 bg-zinc-950/40 text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200"
+                }`}
+              >
+                🎥 Transparent WebM
+              </button>
+            </div>
+
+            {/* Educational / Tooltip Warnings for Video Editors */}
+            {exportType === "zip" && (
+              <div className="text-xs space-y-1.5 p-3 rounded-lg bg-zinc-950/60 border border-zinc-800 text-zinc-400">
+                <p className="font-semibold text-zinc-300">💡 Industry Standard for Final Cut Pro</p>
+                <p>
+                  Generates sequentially numbered transparent PNG frames. macOS Final Cut Pro natively imports this directory directly as a single transparent video track. Lossless and perfect quality!
+                </p>
+                {!config.transparentBackground && (
+                  <p className="text-amber-400 font-medium pt-1">
+                    ⚠️ Tip: Enable &quot;Transparent background&quot; in the Arena customization settings to erase the background.
+                  </p>
+                )}
+              </div>
+            )}
+
+            {exportType === "webm" && (
+              <div className="text-xs space-y-1.5 p-3 rounded-lg bg-zinc-950/60 border border-zinc-800 text-zinc-400">
+                <p className="font-semibold text-zinc-300">🎥 Chrome/Chromium Browser Alpha Video</p>
+                {!webmSupported ? (
+                  <p className="text-amber-500 font-medium">
+                    ⚠️ Transparent WebM recording is not supported in Safari. Please use Chrome/Firefox, or export as a **PNG Sequence (ZIP)** (highly recommended for Final Cut Pro).
+                  </p>
+                ) : (
+                  <p>
+                    Records canvas stream with transparency. Note: Final Cut Pro does not natively support WebM files. You can use free tools like <strong>Shutter Encoder</strong> to transcode it to Apple ProRes 4444.
+                  </p>
+                )}
+                {!config.transparentBackground && (
+                  <p className="text-amber-400 font-medium pt-1">
+                    ⚠️ Tip: Enable &quot;Transparent background&quot; in the Arena customization settings to erase the background.
+                  </p>
+                )}
+              </div>
+            )}
+
+            {exportType === "gif" && (
+              <div className="text-xs space-y-1.5 p-3 rounded-lg bg-zinc-950/60 border border-zinc-800 text-zinc-400">
+                <p className="font-semibold text-zinc-300">💥 Fast Sharing / Low-Res Loop</p>
+                <p>
+                  Saves a lightweight, 256-color loop. Great for chat apps and quick social media posts (excludes sound).
+                </p>
+              </div>
+            )}
+          </div>
 
           <div className="flex flex-wrap gap-3">
             <button
               type="button"
-              disabled={generating}
+              disabled={generating || (exportType === "webm" && !webmSupported)}
               onClick={handleGenerate}
-              className="rounded-lg bg-violet-600 px-6 py-3 font-medium text-white hover:bg-violet-500 disabled:opacity-50"
+              className="rounded-lg bg-violet-600 px-6 py-3 font-semibold text-white hover:bg-violet-500 disabled:opacity-50 transition-colors"
             >
               {generating
                 ? `Generating (${config.targetTime}s)…`
-                : "Generate animation"}
+                : `Generate ${exportType.toUpperCase()}`}
             </button>
             <button
               type="button"
-              disabled={!gifExport?.bytes.length || generating}
+              disabled={!hasGeneratedFile || generating}
               onClick={handleDownloadClick}
-              className="rounded-lg border border-zinc-600 px-6 py-3 font-medium hover:bg-zinc-800 disabled:opacity-40"
+              className="rounded-lg border border-zinc-700 bg-zinc-900/40 px-6 py-3 font-semibold hover:bg-zinc-800 disabled:opacity-40 transition-colors"
             >
-              Download GIF
+              Download {exportType === "zip" ? "PNG Sequence (ZIP)" : exportType.toUpperCase()}
             </button>
           </div>
 
           {status && (
-            <p className="text-sm text-zinc-400" aria-live="polite">
-              {status}
+            <p className="text-sm font-medium text-zinc-400 bg-zinc-900/20 border border-zinc-800/40 rounded-lg px-3 py-2 inline-block" aria-live="polite">
+              ℹ️ {status}
             </p>
           )}
         </div>
@@ -191,3 +323,4 @@ export function StudioClient() {
     </main>
   );
 }
+

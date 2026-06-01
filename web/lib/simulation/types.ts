@@ -61,6 +61,8 @@ export interface StudioConfig {
   // Sound configuration
   soundEnabled: boolean;
   soundPalette: "pentatonic" | "escalating" | "chime" | "marimba";
+  // Transparency
+  transparentBackground: boolean;
 }
 
 export function normalizeStudioConfig(config: StudioConfig): StudioConfig {
@@ -98,6 +100,7 @@ export function normalizeStudioConfig(config: StudioConfig): StudioConfig {
     radiusIncrementPerBounce: clamp(config.radiusIncrementPerBounce ?? 1.0, 0.0, 15.0),
     soundEnabled: config.soundEnabled ?? true,
     soundPalette: config.soundPalette ?? "pentatonic",
+    transparentBackground: config.transparentBackground ?? false,
   };
 }
 
@@ -116,6 +119,7 @@ export const defaultStudioConfig = (): StudioConfig => {
     radiusIncrementPerBounce: 1.0,
     soundEnabled: true,
     soundPalette: "pentatonic",
+    transparentBackground: false,
   });
 };
 

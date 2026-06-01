@@ -67,7 +67,7 @@ export class Simulation {
   }
 
   private initArena(): void {
-    this.scene.initArena(this.scheme, this.config.borderRadius);
+    this.scene.initArena(this.scheme, this.config.borderRadius, this.config.transparentBackground);
   }
 
   private beginAnimationClock(): void {
@@ -83,7 +83,8 @@ export class Simulation {
     const schemeChanged =
       this.config.baseHue !== prev.baseHue ||
       this.config.ballHue !== prev.ballHue ||
-      this.config.borderRadius !== prev.borderRadius;
+      this.config.borderRadius !== prev.borderRadius ||
+      this.config.transparentBackground !== prev.transparentBackground;
     if (schemeChanged) {
       this.applyScheme();
       this.initArena();
@@ -190,7 +191,7 @@ export class Simulation {
 
   private finalizeConsumption(): void {
     if (this.isComplete) return;
-    this.scene.fillArenaConsumed(this.trailColor, this.config.borderRadius);
+    this.scene.fillArenaConsumed(this.trailColor, this.config.borderRadius, this.config.transparentBackground);
     this.clearPct = 1;
     this.progress = 1;
     this.velX = 0;
@@ -322,6 +323,7 @@ export class Simulation {
         nextY,
         this.getEraserRadius(),
         this.trailColor,
+        this.config.transparentBackground,
       );
       segFromX = nextX;
       segFromY = nextY;

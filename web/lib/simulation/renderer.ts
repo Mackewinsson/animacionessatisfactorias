@@ -15,11 +15,16 @@ export class SceneBuffer {
   }
 
   /** Dark background + filled white arena circle (no per-frame clear). */
-  initArena(scheme: ColorScheme, borderRadius: number): void {
+  initArena(scheme: ColorScheme, borderRadius: number, transparent: boolean): void {
     const ctx = this.ctx;
     ctx.globalCompositeOperation = "source-over";
-    ctx.fillStyle = rgbCss(scheme.bg);
-    ctx.fillRect(0, 0, WIDTH, HEIGHT);
+    ctx.clearRect(0, 0, WIDTH, HEIGHT);
+    
+    if (!transparent) {
+      ctx.fillStyle = rgbCss(scheme.bg);
+      ctx.fillRect(0, 0, WIDTH, HEIGHT);
+    }
+    
     ctx.fillStyle = "#ffffff";
     ctx.beginPath();
     ctx.arc(CENTER_X, CENTER_Y, borderRadius, 0, Math.PI * 2);
@@ -34,10 +39,19 @@ export class SceneBuffer {
     toY: number,
     ballRadius: number,
     trailColor: string,
+    transparent: boolean,
   ): void {
     if (fromX === toX && fromY === toY) return;
     const ctx = this.ctx;
-    ctx.strokeStyle = trailColor;
+    
+    if (transparent) {
+      ctx.globalCompositeOperation = "destination-out";
+      ctx.strokeStyle = "rgba(0,0,0,1)";
+    } else {
+      ctx.globalCompositeOperation = "source-over";
+      ctx.strokeStyle = trailColor;
+    }
+    
     ctx.lineWidth = ballRadius * 2;
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
@@ -45,15 +59,28 @@ export class SceneBuffer {
     ctx.moveTo(fromX, fromY);
     ctx.lineTo(toX, toY);
     ctx.stroke();
+    
+    // Always restore source-over composite operation
+    ctx.globalCompositeOperation = "source-over";
   }
 
   /** Fill remaining white arena when progress hits 1.0 */
-  fillArenaConsumed(trailColor: string, borderRadius: number): void {
+  fillArenaConsumed(trailColor: string, borderRadius: number, transparent: boolean): void {
     const ctx = this.ctx;
-    ctx.fillStyle = trailColor;
+    
+    if (transparent) {
+      ctx.globalCompositeOperation = "destination-out";
+      ctx.fillStyle = "rgba(0,0,0,1)";
+    } else {
+      ctx.globalCompositeOperation = "source-over";
+      ctx.fillStyle = trailColor;
+    }
+    
     ctx.beginPath();
     ctx.arc(CENTER_X, CENTER_Y, borderRadius, 0, Math.PI * 2);
     ctx.fill();
+    
+    ctx.globalCompositeOperation = "source-over";
   }
 }
 
@@ -118,6 +145,9 @@ export function drawScene(
   } = opts;
 
   const { borderRadius, targetTime } = config;
+
+  // Clear target context to avoid smearing when background is transparent
+  ctx.clearRect(0, 0, WIDTH, HEIGHT);
 
   // Composite persistent arena + trails (never clearRect the full frame)
   ctx.drawImage(scene.canvas, 0, 0);
