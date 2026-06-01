@@ -67,7 +67,9 @@ export function normalizeStudioConfig(config: StudioConfig): StudioConfig {
     soundEnabled: config.soundEnabled ?? true,
     soundPalette: config.soundPalette ?? "pentatonic",
     transparentBackground: config.transparentBackground ?? false,
-    ballColorPerBounce: config.ballColorPerBounce ?? false,
+    // Paint mode uses a fixed complement ball vs trail; hue shifts break the look.
+    ballColorPerBounce:
+      config.trailMode === "paint" ? false : (config.ballColorPerBounce ?? false),
   };
 }
 

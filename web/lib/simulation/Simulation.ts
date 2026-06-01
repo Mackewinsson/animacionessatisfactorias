@@ -139,7 +139,7 @@ export class Simulation {
   }
 
   private shiftBallColorOnBounce(): void {
-    if (!this.config.ballColorPerBounce) return;
+    if (!this.config.ballColorPerBounce || this.config.trailMode === "paint") return;
     this.activeBallHue =
       (this.activeBallHue + CINEMATIC_CONFIG.ballHueShiftPerBounce) % 1;
     this.scheme = generateColorScheme(this.config.baseHue, this.activeBallHue);

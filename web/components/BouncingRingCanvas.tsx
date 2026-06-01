@@ -65,6 +65,8 @@ type Props = {
   onWebMComplete: (blob: Blob) => void;
   onMp4Complete: (blob: Blob) => void;
   onProgress?: (progressText: string) => void;
+  /** Restore defaults in parent and restart preview. */
+  onReset?: () => void;
 };
 
 export function BouncingRingCanvas({
@@ -77,6 +79,7 @@ export function BouncingRingCanvas({
   onWebMComplete,
   onMp4Complete,
   onProgress,
+  onReset,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const simRef = useRef<Simulation | null>(null);
@@ -90,7 +93,19 @@ export function BouncingRingCanvas({
   const audioRecorderRef = useRef<AudioWavRecorder | null>(null);
   const rafRef = useRef<number>(0);
   const lastTimeRef = useRef<number>(0);
+  const loopRef = useRef<(time: number) => void>(() => {});
+  const previewingRef = useRef(true);
   const [previewing, setPreviewing] = useState(true);
+
+  const setPreviewingActive = useCallback((active: boolean) => {
+    previewingRef.current = active;
+    setPreviewing(active);
+  }, []);
+
+  const scheduleAnimation = useCallback(() => {
+    cancelAnimationFrame(rafRef.current);
+    rafRef.current = requestAnimationFrame((t) => loopRef.current(t));
+  }, []);
 
   const finishRecording = useCallback(
     async (sim: Simulation) => {
@@ -201,22 +216,12 @@ export function BouncingRingCanvas({
     };
   }, []);
 
-  useEffect(() => {
-    const sim = simRef.current;
-    if (sim) {
-      sim.updateConfig(config);
-      sim.onBounceCallback = (bounceCount, speed) => {
-        playBounceNote(config, bounceCount, speed);
-      };
-    }
-  }, [config]);
-
   const loop = useCallback(
     (time: number) => {
       const sim = simRef.current;
       const canvas = canvasRef.current;
       if (!sim || !canvas) {
-        rafRef.current = requestAnimationFrame(loop);
+        scheduleAnimation();
         return;
       }
 
@@ -227,9 +232,11 @@ export function BouncingRingCanvas({
       const dt = Math.min(time - lastTimeRef.current, 50);
       lastTimeRef.current = time;
 
-      const wasComplete = sim.isComplete;
-
-      if ((previewing || generating) && sim.shouldAnimate() && !mp4ExportActiveRef.current) {
+      if (
+        (previewingRef.current || generating) &&
+        sim.shouldAnimate() &&
+        !mp4ExportActiveRef.current
+      ) {
         sim.tick(time, dt);
       }
 
@@ -270,16 +277,45 @@ export function BouncingRingCanvas({
       }
 
       if (sim.shouldAnimate() || generating) {
-        rafRef.current = requestAnimationFrame(loop);
+        scheduleAnimation();
       }
     },
-    [generating, finishRecording, previewing, exportType, onProgress],
+    [generating, finishRecording, exportType, onProgress, scheduleAnimation],
   );
 
+  loopRef.current = loop;
+
+  const restartPreview = useCallback(() => {
+    const sim = simRef.current;
+    if (!sim) return;
+    sim.updateConfig(config);
+    sim.resetState();
+    lastTimeRef.current = 0;
+    previewingRef.current = true;
+    setPreviewing(true);
+    scheduleAnimation();
+  }, [config, scheduleAnimation]);
+
   useEffect(() => {
-    rafRef.current = requestAnimationFrame(loop);
+    const sim = simRef.current;
+    if (!sim) return;
+
+    sim.onBounceCallback = (bounceCount, speed) => {
+      playBounceNote(config, bounceCount, speed);
+    };
+
+    if (generating) {
+      sim.updateConfig(config);
+      return;
+    }
+
+    restartPreview();
+  }, [config, generating, restartPreview]);
+
+  useEffect(() => {
+    scheduleAnimation();
     return () => cancelAnimationFrame(rafRef.current);
-  }, [loop]);
+  }, [scheduleAnimation]);
 
   useEffect(() => {
     if (!generating || exportType === "mp4") return;
@@ -316,11 +352,19 @@ export function BouncingRingCanvas({
       }
 
       sim.startRecording();
-      rafRef.current = requestAnimationFrame(loop);
+      scheduleAnimation();
     };
 
     void startRecording();
-  }, [generating, loop, exportType, config.transparentBackground, config.soundEnabled, onGeneratingChange, onProgress]);
+  }, [
+    generating,
+    scheduleAnimation,
+    exportType,
+    config.transparentBackground,
+    config.soundEnabled,
+    onGeneratingChange,
+    onProgress,
+  ]);
 
   useEffect(() => {
     if (!generating || exportType !== "mp4") return;
@@ -475,11 +519,12 @@ export function BouncingRingCanvas({
   ]);
 
   const handleReset = () => {
-    const sim = simRef.current;
-    if (!sim) return;
-    sim.resetState();
-    lastTimeRef.current = 0;
-    rafRef.current = requestAnimationFrame(loop);
+    if (generating) return;
+    if (onReset) {
+      onReset();
+      return;
+    }
+    restartPreview();
   };
 
   return (
@@ -499,14 +544,15 @@ export function BouncingRingCanvas({
           onClick={handleReset}
           className="rounded-lg border border-zinc-600 px-4 py-2 hover:bg-zinc-800"
         >
-          Reset preview
+          Reset all
         </button>
         <button
           type="button"
           onClick={() => {
-            setPreviewing((p) => !p);
-            if (simRef.current?.isComplete) {
-              rafRef.current = requestAnimationFrame(loop);
+            const next = !previewingRef.current;
+            setPreviewingActive(next);
+            if (next && simRef.current?.isComplete) {
+              scheduleAnimation();
             }
           }}
           className="rounded-lg border border-zinc-600 px-4 py-2 hover:bg-zinc-800"

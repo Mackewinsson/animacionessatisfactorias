@@ -62,17 +62,31 @@ export function isSignificantBounce(impactSpeed: number): boolean {
   return impactSpeed >= MIN_BOUNCE_IMPACT_SPEED;
 }
 
-/** Template-style drop: slightly off-center with horizontal launch speed. */
+/**
+ * Random spawn in the upper part of the arena (wide horizontal spread).
+ * Polar sampling around the top (-π/2) keeps cos(angle) ≈ 0, so the ball
+ * always looked centered; this samples (x, y) in an upper band instead.
+ */
 export function createDropInitialState(config: StudioConfig): {
   ballX: number;
   ballY: number;
   velX: number;
   velY: number;
 } {
-  return {
-    ballX: CENTER_X - 100,
-    ballY: CENTER_Y - 50,
-    velX: config.initialSpeed,
-    velY: 0,
-  };
+  const maxDist = config.borderRadius - config.ringRadius;
+  // dy < 0 = above center (screen y grows downward)
+  const minDy = -maxDist * 0.92;
+  const maxDy = -maxDist * 0.42;
+  const dy = minDy + Math.random() * (maxDy - minDy);
+  const ballY = CENTER_Y + dy;
+  const maxDx = Math.sqrt(Math.max(0, maxDist * maxDist - dy * dy));
+  const ballX =
+    CENTER_X + (Math.random() * 2 - 1) * maxDx * (0.82 + Math.random() * 0.18);
+
+  const speed = config.initialSpeed;
+  const velX =
+    (Math.random() < 0.5 ? -1 : 1) * speed * (0.65 + Math.random() * 0.35);
+  const velY = Math.random() * 1.5;
+
+  return { ballX, ballY, velX, velY };
 }

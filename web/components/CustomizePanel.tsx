@@ -161,6 +161,7 @@ export function CustomizePanel({
               patch({
                 trailMode,
                 transparentBackground: trailMode === "paint",
+                ballColorPerBounce: trailMode === "paint" ? false : config.ballColorPerBounce,
               });
             }}
             className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-white"
@@ -261,16 +262,18 @@ export function CustomizePanel({
                 disabled={disabled}
                 onChange={(borderRadius) => patch({ borderRadius })}
               />
-              <label className="flex items-center gap-2 cursor-pointer pt-1">
-                <input
-                  type="checkbox"
-                  checked={config.ballColorPerBounce}
-                  disabled={disabled}
-                  onChange={(e) => patch({ ballColorPerBounce: e.target.checked })}
-                  className="rounded border-zinc-700 bg-zinc-950 text-violet-600 focus:ring-violet-500 w-4 h-4 cursor-pointer"
-                />
-                <span className="text-sm text-zinc-300">New ball color every bounce</span>
-              </label>
+              {config.trailMode === "erase" && (
+                <label className="flex items-center gap-2 cursor-pointer pt-1">
+                  <input
+                    type="checkbox"
+                    checked={config.ballColorPerBounce}
+                    disabled={disabled}
+                    onChange={(e) => patch({ ballColorPerBounce: e.target.checked })}
+                    className="rounded border-zinc-700 bg-zinc-950 text-violet-600 focus:ring-violet-500 w-4 h-4 cursor-pointer"
+                  />
+                  <span className="text-sm text-zinc-300">New ball color every bounce</span>
+                </label>
+              )}
             </div>
 
             <div className="space-y-3">

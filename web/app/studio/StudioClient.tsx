@@ -20,7 +20,14 @@ import {
 
 export function StudioClient() {
   const searchParams = useSearchParams();
-  const [config, setConfig] = useState<StudioConfig>(() => defaultStudioConfig());
+  const [config, setConfig] = useState<StudioConfig>(() => {
+    const baseHue = Math.random();
+    return normalizeStudioConfig({
+      ...defaultStudioConfig(),
+      baseHue,
+      ballHue: (baseHue + 0.5) % 1,
+    });
+  });
   const [generating, setGenerating] = useState(false);
   const [exportType, setExportType] = useState<"gif" | "zip" | "webm" | "mp4">("mp4");
   
@@ -54,12 +61,6 @@ export function StudioClient() {
     })();
   }, [searchParams, renderId]);
 
-  useEffect(() => {
-    // Client-side initialization of a random scheme on mount
-    handleRandomize();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   const handleRandomize = () => {
     const baseHue = Math.random();
     setConfig((c) =>
@@ -71,7 +72,22 @@ export function StudioClient() {
     );
   };
 
+  const clearExports = useCallback(() => {
+    setGifExport(null);
+    setZipExport(null);
+    setWebMExport(null);
+    setMp4Export(null);
+  }, []);
+
+  const handleResetAll = useCallback(() => {
+    if (generating) return;
+    clearExports();
+    setStatus(null);
+    setConfig(defaultStudioConfig());
+  }, [generating, clearExports]);
+
   const handleResetPhysics = () => {
+    clearExports();
     setConfig((c) =>
       normalizeStudioConfig({
         ...c,
@@ -187,11 +203,7 @@ export function StudioClient() {
         <CustomizePanel
           config={config}
           onChange={(c) => {
-            // Reset generated files on change to keep exports in sync
-            setGifExport(null);
-            setZipExport(null);
-            setWebMExport(null);
-            setMp4Export(null);
+            clearExports();
             setConfig(normalizeStudioConfig(c));
           }}
           onRandomize={handleRandomize}
@@ -204,6 +216,7 @@ export function StudioClient() {
             config={config}
             generating={generating}
             exportType={exportType}
+            onReset={handleResetAll}
             onGeneratingChange={setGenerating}
             onRecordingComplete={handleRecordingComplete}
             onZipComplete={handleZipComplete}
