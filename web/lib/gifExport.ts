@@ -3,25 +3,39 @@ import { FPS, FRAME_SKIP } from "./simulation/constants";
 import { rgbToHex } from "./simulation/colors";
 import type { Rgb } from "./simulation/types";
 
-export function encodeTransparentGif(frames: ImageData[]): Uint8Array {
-  if (frames.length === 0) throw new Error("No frames to encode");
-  const delay = Math.round(1000 / (FPS / FRAME_SKIP));
-  const gif = GIFEncoder();
-  const { width, height } = frames[0];
+const FRAME_DELAY_MS = Math.round(1000 / (FPS / FRAME_SKIP));
 
-  for (const frame of frames) {
-    const rgba = frame.data;
+/** Encodes frames one-by-one so a 60s capture does not hold ~1800 ImageData blobs in RAM. */
+export class GifStreamEncoder {
+  private gif = GIFEncoder();
+  private frameCount = 0;
+
+  addFrame(imageData: ImageData): void {
+    const rgba = imageData.data;
     const palette = quantize(rgba, 256);
     const index = applyPalette(rgba, palette);
-    gif.writeFrame(index, width, height, {
+    this.gif.writeFrame(index, imageData.width, imageData.height, {
       palette,
-      delay,
+      delay: FRAME_DELAY_MS,
       dispose: 2,
     });
+    this.frameCount += 1;
   }
 
-  gif.finish();
-  return gif.bytes();
+  finish(): { bytes: Uint8Array; frameCount: number } {
+    if (this.frameCount === 0) {
+      throw new Error("No frames to encode");
+    }
+    this.gif.finish();
+    return { bytes: this.gif.bytes(), frameCount: this.frameCount };
+  }
+}
+
+/** @deprecated Prefer GifStreamEncoder during capture */
+export function encodeTransparentGif(frames: ImageData[]): Uint8Array {
+  const encoder = new GifStreamEncoder();
+  for (const frame of frames) encoder.addFrame(frame);
+  return encoder.finish().bytes;
 }
 
 export function downloadGif(bytes: Uint8Array, ballRgb: Rgb): void {
@@ -41,3 +55,5 @@ export function downloadGif(bytes: Uint8Array, ballRgb: Rgb): void {
   a.click();
   URL.revokeObjectURL(url);
 }
+
+export type GifExportResult = { bytes: Uint8Array; frameCount: number };

@@ -6,17 +6,22 @@ import { useSearchParams } from "next/navigation";
 import { BouncingRingCanvas } from "@/components/BouncingRingCanvas";
 import { CustomizePanel } from "@/components/CustomizePanel";
 import { PayModal } from "@/components/PayModal";
-import { encodeTransparentGif, downloadGif } from "@/lib/gifExport";
+import { downloadGif, type GifExportResult } from "@/lib/gifExport";
 import { generateColorScheme } from "@/lib/simulation/colors";
 import { computeRenderId } from "@/lib/renderId";
 import { isUnlocked, requestUnlock } from "@/lib/paywall";
-import { defaultStudioConfig, type StudioConfig } from "@/lib/simulation/types";
+import {
+  defaultStudioConfig,
+  normalizeStudioConfig,
+  buildPhysicsDefaults,
+  type StudioConfig,
+} from "@/lib/simulation/types";
 
 export function StudioClient() {
   const searchParams = useSearchParams();
   const [config, setConfig] = useState<StudioConfig>(() => defaultStudioConfig());
   const [generating, setGenerating] = useState(false);
-  const [frames, setFrames] = useState<ImageData[] | null>(null);
+  const [gifExport, setGifExport] = useState<GifExportResult | null>(null);
   const [payOpen, setPayOpen] = useState(false);
   const [payLoading, setPayLoading] = useState(false);
   const [payError, setPayError] = useState<string | null>(null);
@@ -34,45 +39,67 @@ export function StudioClient() {
     })();
   }, [searchParams, renderId]);
 
+  useEffect(() => {
+    // Client-side initialization of a random scheme on mount
+    handleRandomize();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const handleRandomize = () => {
-    setConfig((c) => ({
-      ...c,
-      baseHue: Math.random(),
-      seed: Math.floor(Math.random() * 1e9),
-    }));
+    const baseHue = Math.random();
+    setConfig((c) =>
+      normalizeStudioConfig({
+        ...c,
+        baseHue,
+        ballHue: (baseHue + 0.5) % 1,
+        seed: Math.floor(Math.random() * 1e9),
+      }),
+    );
+  };
+
+  const handleResetPhysics = () => {
+    setConfig((c) =>
+      normalizeStudioConfig({
+        ...c,
+        ...buildPhysicsDefaults(),
+      }),
+    );
   };
 
   const handleGenerate = () => {
     if (generating) return;
-    setConfig((c) => ({
-      ...c,
-      baseHue: Math.random(),
-      seed: Math.floor(Math.random() * 1e9),
-    }));
-    setFrames(null);
+    const baseHue = Math.random();
+    setConfig((c) =>
+      normalizeStudioConfig({
+        ...c,
+        baseHue,
+        ballHue: (baseHue + 0.5) % 1,
+        seed: Math.floor(Math.random() * 1e9),
+      }),
+    );
+    setGifExport(null);
     setStatus(`Recording ${config.targetTime}s…`);
     setGenerating(true);
   };
 
-  const handleRecordingComplete = useCallback((captured: ImageData[]) => {
-    setFrames(captured);
-    setStatus(`Ready — ${captured.length} frames captured.`);
+  const handleRecordingComplete = useCallback((result: GifExportResult) => {
+    setGifExport(result);
+    setStatus(`Ready — ${result.frameCount} frames encoded.`);
   }, []);
 
   const runDownload = useCallback(() => {
-    if (!frames?.length) return;
+    if (!gifExport?.bytes.length) return;
     try {
-      const bytes = encodeTransparentGif(frames);
-      const scheme = generateColorScheme(config.baseHue);
-      downloadGif(bytes, scheme.ball);
+      const scheme = generateColorScheme(config.baseHue, config.ballHue);
+      downloadGif(gifExport.bytes, scheme.ball);
       setStatus("GIF downloaded.");
     } catch (e) {
       setStatus(e instanceof Error ? e.message : "Export failed.");
     }
-  }, [frames, config.baseHue]);
+  }, [gifExport, config.baseHue, config.ballHue]);
 
   const handleDownloadClick = async () => {
-    if (!frames?.length) {
+    if (!gifExport?.bytes.length) {
       setStatus("Generate an animation first.");
       return;
     }
@@ -108,11 +135,12 @@ export function StudioClient() {
         </div>
       </header>
 
-      <div className="mx-auto grid max-w-6xl gap-8 p-4 lg:grid-cols-[300px_1fr]">
+      <div className="mx-auto grid max-w-7xl gap-8 p-4 lg:grid-cols-[minmax(300px,360px)_1fr]">
         <CustomizePanel
           config={config}
-          onChange={setConfig}
+          onChange={(c) => setConfig(normalizeStudioConfig(c))}
           onRandomize={handleRandomize}
+          onResetPhysics={handleResetPhysics}
           disabled={generating}
         />
 
@@ -137,7 +165,7 @@ export function StudioClient() {
             </button>
             <button
               type="button"
-              disabled={!frames?.length || generating}
+              disabled={!gifExport?.bytes.length || generating}
               onClick={handleDownloadClick}
               className="rounded-lg border border-zinc-600 px-6 py-3 font-medium hover:bg-zinc-800 disabled:opacity-40"
             >

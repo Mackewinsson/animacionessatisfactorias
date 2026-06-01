@@ -26,7 +26,7 @@ Open [http://localhost:3000](http://localhost:3000) — **Studio** at `/studio`.
 
 ## Structure
 
-- [`lib/simulation/`](lib/simulation/) — port of [`../bouncing_ring.py`](../bouncing_ring.py)
+- [`lib/simulation/`](lib/simulation/) — core 2D canvas physics engine
 - [`components/BouncingRingCanvas.tsx`](components/BouncingRingCanvas.tsx) — live preview + recording
 - [`lib/gifExport.ts`](lib/gifExport.ts) — client GIF encode (`gifenc`)
 - [`lib/paywall.ts`](lib/paywall.ts) — unlock token in `sessionStorage`

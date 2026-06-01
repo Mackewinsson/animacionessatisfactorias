@@ -51,13 +51,16 @@ export function hsvToRgb(h: number, s: number, v: number): Rgb {
   ];
 }
 
-export function generateColorScheme(baseHue?: number): ColorScheme {
+export function generateColorScheme(
+  baseHue?: number,
+  ballHue?: number,
+): ColorScheme {
   const base = baseHue ?? Math.random();
-  const ballHue = (base + 0.5) % 1;
+  const ball = ballHue ?? (base + 0.5) % 1;
   return {
     baseHue: base,
-    ball: hsvToRgb(ballHue, 0.85, 0.92),
-    ballHighlight: hsvToRgb(ballHue, 0.4, 1),
+    ball: hsvToRgb(ball, 0.85, 0.92),
+    ballHighlight: hsvToRgb(ball, 0.4, 1),
     borderGlow: hsvToRgb(base, 0.15, 0.82),
     borderLine: hsvToRgb(base, 0.08, 0.88),
     bg: hsvToRgb(base, 0.5, 0.03),
@@ -66,6 +69,37 @@ export function generateColorScheme(baseHue?: number): ColorScheme {
 
 export function rgbToHex(rgb: Rgb): string {
   return rgb.map((c) => c.toString(16).padStart(2, "0")).join("");
+}
+
+export function hexToRgb(hex: string): Rgb {
+  const h = hex.replace("#", "");
+  if (h.length !== 6) return [255, 80, 120];
+  return [
+    parseInt(h.slice(0, 2), 16),
+    parseInt(h.slice(2, 4), 16),
+    parseInt(h.slice(4, 6), 16),
+  ];
+}
+
+/** Hue component 0–1 for ball color picker sync. */
+export function rgbToHue(r: number, g: number, b: number): number {
+  const rn = r / 255;
+  const gn = g / 255;
+  const bn = b / 255;
+  const max = Math.max(rn, gn, bn);
+  const min = Math.min(rn, gn, bn);
+  const d = max - min;
+  if (d < 1e-6) return 0;
+  let h = 0;
+  if (max === rn) h = ((gn - bn) / d) % 6;
+  else if (max === gn) h = (bn - rn) / d + 2;
+  else h = (rn - gn) / d + 4;
+  h /= 6;
+  return h < 0 ? h + 1 : h;
+}
+
+export function ballColorFromHue(ballHue: number): Rgb {
+  return hsvToRgb(ballHue, 0.85, 0.92);
 }
 
 export function rgbCss(rgb: Rgb, alpha = 1): string {

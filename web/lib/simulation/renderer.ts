@@ -1,135 +1,148 @@
-import {
-  BORDER_RADIUS,
-  CENTER_X,
-  CENTER_Y,
-  HEIGHT,
-  RING_RADIUS,
-  WIDTH,
-} from "./constants";
-import { hsvToRgb, rgbCss } from "./colors";
+import { CENTER_X, CENTER_Y, HEIGHT, WIDTH } from "./constants";
+import { rgbCss } from "./colors";
 import type { ColorScheme, StudioConfig } from "./types";
 
-export function buildGradientCanvas(scheme: ColorScheme): HTMLCanvasElement {
-  const canvas = document.createElement("canvas");
-  canvas.width = WIDTH;
-  canvas.height = HEIGHT;
-  const ctx = canvas.getContext("2d")!;
-  const baseHue = scheme.baseHue;
-  for (let r = BORDER_RADIUS; r > 0; r--) {
-    const t = r / BORDER_RADIUS;
-    const hue = (baseHue + 0.12 * (1 - t)) % 1;
-    const sat = 0.75 + 0.15 * t;
-    const val = 0.35 + 0.55 * (1 - t) ** 1.5;
-    const [red, green, blue] = hsvToRgb(hue, sat, val);
-    ctx.fillStyle = `rgb(${red},${green},${blue})`;
+/** Persistent layer: dark background + arena fill (drawn once per reset). */
+export class SceneBuffer {
+  readonly canvas: HTMLCanvasElement;
+  private readonly ctx: CanvasRenderingContext2D;
+
+  constructor() {
+    this.canvas = document.createElement("canvas");
+    this.canvas.width = WIDTH;
+    this.canvas.height = HEIGHT;
+    this.ctx = this.canvas.getContext("2d")!;
+  }
+
+  /** Dark background + filled white arena circle (no per-frame clear). */
+  initArena(scheme: ColorScheme, borderRadius: number): void {
+    const ctx = this.ctx;
+    ctx.globalCompositeOperation = "source-over";
+    ctx.fillStyle = rgbCss(scheme.bg);
+    ctx.fillRect(0, 0, WIDTH, HEIGHT);
+    ctx.fillStyle = "#ffffff";
     ctx.beginPath();
-    ctx.arc(CENTER_X, CENTER_Y, r, 0, Math.PI * 2);
+    ctx.arc(CENTER_X, CENTER_Y, borderRadius, 0, Math.PI * 2);
     ctx.fill();
   }
-  return canvas;
+
+  /** ASMR "color consuming" stroke along the ball path. */
+  drawEraserTrail(
+    fromX: number,
+    fromY: number,
+    toX: number,
+    toY: number,
+    ballRadius: number,
+    trailColor: string,
+  ): void {
+    if (fromX === toX && fromY === toY) return;
+    const ctx = this.ctx;
+    ctx.strokeStyle = trailColor;
+    ctx.lineWidth = ballRadius * 2;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.beginPath();
+    ctx.moveTo(fromX, fromY);
+    ctx.lineTo(toX, toY);
+    ctx.stroke();
+  }
+
+  /** Fill remaining white arena when progress hits 1.0 */
+  fillArenaConsumed(trailColor: string, borderRadius: number): void {
+    const ctx = this.ctx;
+    ctx.fillStyle = trailColor;
+    ctx.beginPath();
+    ctx.arc(CENTER_X, CENTER_Y, borderRadius, 0, Math.PI * 2);
+    ctx.fill();
+  }
 }
 
-export function createEraseCanvas(): HTMLCanvasElement {
-  const canvas = document.createElement("canvas");
-  canvas.width = WIDTH;
-  canvas.height = HEIGHT;
-  return canvas;
+export function drawBall(
+  ctx: CanvasRenderingContext2D,
+  scheme: ColorScheme,
+  ballX: number,
+  ballY: number,
+  ringRadius: number,
+): void {
+  ctx.fillStyle = rgbCss(scheme.ball);
+  ctx.beginPath();
+  ctx.arc(ballX, ballY, ringRadius, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = rgbCss(scheme.ballHighlight);
+  ctx.lineWidth = 2;
+  ctx.stroke();
 }
 
 export function drawScene(
   ctx: CanvasRenderingContext2D,
   opts: {
+    scene: SceneBuffer;
     scheme: ColorScheme;
-    gradientCanvas: HTMLCanvasElement;
-    eraseCanvas: HTMLCanvasElement;
     ballX: number;
     ballY: number;
-    config: Pick<StudioConfig, "watermarkText" | "watermarkOpacity">;
+    config: StudioConfig;
     showHud?: boolean;
     recording?: boolean;
     elapsed: number;
-    targetTime: number;
     bounceCount: number;
     clearPct: number;
     displaySpeed: number;
+    currentRadius: number;
+    progress: number;
+    frozen?: boolean;
+    confettiParticles?: Array<{
+      x: number;
+      y: number;
+      color: string;
+      size: number;
+      rotation: number;
+      opacity: number;
+    }>;
   },
 ): void {
   const {
+    scene,
     scheme,
-    gradientCanvas,
-    eraseCanvas,
     ballX,
     ballY,
     config,
     showHud = true,
     recording = false,
     elapsed,
-    targetTime,
     bounceCount,
     clearPct,
     displaySpeed,
+    currentRadius,
+    progress,
+    frozen = false,
   } = opts;
 
-  ctx.fillStyle = rgbCss(scheme.bg);
-  ctx.fillRect(0, 0, WIDTH, HEIGHT);
+  const { borderRadius, targetTime } = config;
 
-  const vis = document.createElement("canvas");
-  vis.width = WIDTH;
-  vis.height = HEIGHT;
-  const vctx = vis.getContext("2d")!;
-  vctx.drawImage(gradientCanvas, 0, 0);
-  vctx.globalCompositeOperation = "destination-out";
-  vctx.drawImage(eraseCanvas, 0, 0);
-  vctx.globalCompositeOperation = "source-over";
-
-  ctx.save();
-  ctx.beginPath();
-  ctx.arc(CENTER_X, CENTER_Y, BORDER_RADIUS, 0, Math.PI * 2);
-  ctx.clip();
-  ctx.drawImage(vis, 0, 0);
-  ctx.restore();
+  // Composite persistent arena + trails (never clearRect the full frame)
+  ctx.drawImage(scene.canvas, 0, 0);
 
   for (let g = 6; g > 0; g--) {
     const a = (15 * g) / 255;
     ctx.strokeStyle = rgbCss(scheme.borderGlow, a);
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.arc(CENTER_X, CENTER_Y, BORDER_RADIUS + g, 0, Math.PI * 2);
+    ctx.arc(CENTER_X, CENTER_Y, borderRadius + g, 0, Math.PI * 2);
     ctx.stroke();
   }
 
   ctx.strokeStyle = rgbCss(scheme.borderLine);
   ctx.lineWidth = 2;
   ctx.beginPath();
-  ctx.arc(CENTER_X, CENTER_Y, BORDER_RADIUS, 0, Math.PI * 2);
+  ctx.arc(CENTER_X, CENTER_Y, borderRadius, 0, Math.PI * 2);
   ctx.stroke();
 
-  const glowR = RING_RADIUS * 3;
-  const glowCanvas = document.createElement("canvas");
-  glowCanvas.width = glowR * 2;
-  glowCanvas.height = glowR * 2;
-  const gctx = glowCanvas.getContext("2d")!;
-  for (let gr = glowR; gr > RING_RADIUS; gr -= 2) {
-    const a = Math.max(
-      0,
-      45 * (1 - (gr - RING_RADIUS) / (glowR - RING_RADIUS)),
-    );
-    gctx.fillStyle = rgbCss(scheme.ball, a / 255);
-    gctx.beginPath();
-    gctx.arc(glowR, glowR, gr, 0, Math.PI * 2);
-    gctx.fill();
-  }
-  ctx.drawImage(glowCanvas, ballX - glowR, ballY - glowR);
-
-  ctx.fillStyle = rgbCss(scheme.ball);
-  ctx.beginPath();
-  ctx.arc(ballX, ballY, RING_RADIUS, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.strokeStyle = rgbCss(scheme.ballHighlight);
-  ctx.lineWidth = 2;
-  ctx.stroke();
-
+  drawBall(ctx, scheme, ballX, ballY, currentRadius);
   drawWatermark(ctx, config.watermarkText, config.watermarkOpacity);
+
+  if (opts.confettiParticles && opts.confettiParticles.length > 0) {
+    drawConfetti(ctx, opts.confettiParticles);
+  }
 
   if (!showHud) return;
 
@@ -147,9 +160,10 @@ export function drawScene(
   ctx.font = "bold 16px monospace";
   ctx.fillStyle = "rgb(200,200,210)";
   const stats = [
-    `Ring radius: ${RING_RADIUS} px`,
-    `Border radius: ${BORDER_RADIUS} px`,
+    `Ring radius: ${currentRadius.toFixed(1)} px`,
+    `Border radius: ${borderRadius} px`,
     `Ring speed: ${displaySpeed.toFixed(0)} px/frame`,
+    `Progress: ${(progress * 100).toFixed(0)}%`,
   ];
   stats.forEach((label, i) => ctx.fillText(label, WIDTH - 230, 20 + i * 20));
 
@@ -167,6 +181,12 @@ export function drawScene(
     ctx.fill();
     ctx.font = "bold 16px monospace";
     ctx.fillText("REC", WIDTH - 65, 20);
+  }
+
+  if (frozen) {
+    ctx.font = "bold 14px monospace";
+    ctx.fillStyle = "rgb(100,220,140)";
+    ctx.fillText("COMPLETE", WIDTH - 120, HEIGHT - 22);
   }
 }
 
@@ -186,37 +206,42 @@ export function drawWatermark(
   ctx.restore();
 }
 
-export function captureTransparentFrame(
+export function captureFrame(
+  scene: SceneBuffer,
   scheme: ColorScheme,
-  gradientCanvas: HTMLCanvasElement,
-  eraseCanvas: HTMLCanvasElement,
   ballX: number,
   ballY: number,
-  config: Pick<StudioConfig, "watermarkText" | "watermarkOpacity">,
+  config: StudioConfig,
+  currentRadius: number,
+  progress: number,
+  frozen = false,
 ): ImageData {
   const canvas = document.createElement("canvas");
   canvas.width = WIDTH;
   canvas.height = HEIGHT;
   const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
   drawScene(ctx, {
+    scene,
     scheme,
-    gradientCanvas,
-    eraseCanvas,
     ballX,
     ballY,
     config,
     showHud: false,
     elapsed: 0,
-    targetTime: 60,
     bounceCount: 0,
-    clearPct: 0,
+    clearPct: frozen ? 1 : 0,
     displaySpeed: 0,
+    currentRadius,
+    progress,
+    frozen,
   });
   return ctx.getImageData(0, 0, WIDTH, HEIGHT);
 }
 
+/** % of arena interior that has been "consumed" (no longer white). */
 export function estimateClearPercentage(
-  eraseCanvas: HTMLCanvasElement,
+  scene: SceneBuffer,
+  borderRadius: number,
 ): number {
   const scale = 6;
   const sw = Math.floor(WIDTH / scale);
@@ -225,11 +250,11 @@ export function estimateClearPercentage(
   small.width = sw;
   small.height = sh;
   const sctx = small.getContext("2d")!;
-  sctx.drawImage(eraseCanvas, 0, 0, sw, sh);
+  sctx.drawImage(scene.canvas, 0, 0, sw, sh);
   const data = sctx.getImageData(0, 0, sw, sh).data;
   const cx = CENTER_X / scale;
   const cy = CENTER_Y / scale;
-  const br = BORDER_RADIUS / scale;
+  const br = borderRadius / scale;
   let count = 0;
   let cleared = 0;
   for (let y = 0; y < sh; y++) {
@@ -239,9 +264,37 @@ export function estimateClearPercentage(
       if (dx * dx + dy * dy <= br * br) {
         count++;
         const i = (y * sw + x) * 4;
-        if (data[i + 3] > 60) cleared++;
+        const r = data[i];
+        const g = data[i + 1];
+        const b = data[i + 2];
+        // Consumed = dark trail/background (not white arena)
+        if (r + g + b < 600) cleared++;
       }
     }
   }
   return count === 0 ? 0 : cleared / count;
+}
+
+export function drawConfetti(
+  ctx: CanvasRenderingContext2D,
+  particles: Array<{
+    x: number;
+    y: number;
+    color: string;
+    size: number;
+    rotation: number;
+    opacity: number;
+  }>,
+): void {
+  ctx.save();
+  for (const p of particles) {
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    ctx.rotate(p.rotation);
+    ctx.globalAlpha = p.opacity;
+    ctx.fillStyle = p.color;
+    ctx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size * 0.6);
+    ctx.restore();
+  }
+  ctx.restore();
 }
