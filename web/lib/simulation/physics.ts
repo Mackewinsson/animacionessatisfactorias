@@ -5,6 +5,9 @@ export function targetDurationMs(config: StudioConfig): number {
   return config.targetTime * 1000;
 }
 
+/** Min inward normal speed (px/frame) to count as a real wall bounce. */
+export const MIN_BOUNCE_IMPACT_SPEED = 1.5;
+
 /**
  * Hypnotic ball physics: gravity → move → circle boundary reflect (Gemini template).
  */
@@ -22,6 +25,8 @@ export function resolveCircleCollision(
   velX: number;
   velY: number;
   collided: boolean;
+  /** Speed into the wall along the surface normal (px/frame). */
+  impactSpeed: number;
 } {
   const dx = ballX - CENTER_X;
   const dy = ballY - CENTER_Y;
@@ -29,7 +34,7 @@ export function resolveCircleCollision(
   const maxDist = containerRadius - ballRadius;
 
   if (dist <= maxDist || dist === 0) {
-    return { ballX, ballY, velX, velY, collided: false };
+    return { ballX, ballY, velX, velY, collided: false, impactSpeed: 0 };
   }
 
   const nx = dx / dist;
@@ -39,6 +44,7 @@ export function resolveCircleCollision(
   const correctedY = ballY - ny * overlap;
 
   const dot = velX * nx + velY * ny;
+  const impactSpeed = Math.abs(dot);
   const newVx = (velX - 2 * dot * nx) * restitution;
   const newVy = (velY - 2 * dot * ny) * restitution;
 
@@ -48,7 +54,12 @@ export function resolveCircleCollision(
     velX: newVx,
     velY: newVy,
     collided: true,
+    impactSpeed,
   };
+}
+
+export function isSignificantBounce(impactSpeed: number): boolean {
+  return impactSpeed >= MIN_BOUNCE_IMPACT_SPEED;
 }
 
 /** Template-style drop: slightly off-center with horizontal launch speed. */

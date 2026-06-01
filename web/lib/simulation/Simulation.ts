@@ -8,6 +8,7 @@ import {
 } from "./renderer";
 import {
   createDropInitialState,
+  isSignificantBounce,
   resolveCircleCollision,
   targetDurationMs,
 } from "./physics";
@@ -349,7 +350,7 @@ export class Simulation {
       );
     }
 
-    if (resolved.collided) {
+    if (resolved.collided && isSignificantBounce(resolved.impactSpeed)) {
       if (this.config.trailMode === "paint") {
         this.scene.drawWallGapPaint(
           this.ballX,
