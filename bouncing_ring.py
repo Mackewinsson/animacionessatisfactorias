@@ -47,15 +47,17 @@ FRICTION = 1.0
 JITTER_START = 0.18
 JITTER_END = 0.35
 TARGET_TIME = 60.0
-# Fraction of inner disk considered "fully cleared" for auto-save (approximate metric).
-CLEAR_COMPLETE_THRESHOLD = 0.99
 FPS = 60
+
+WATERMARK_TEXT = "MACKEWINSSON"
+WATERMARK_OPACITY = 0.25
 
 clock = pygame.time.Clock()
 font = pygame.font.SysFont("monospace", 16, bold=True)
 title_font = pygame.font.SysFont("monospace", 14, bold=True)
 bounce_font = pygame.font.SysFont("monospace", 18, bold=True)
 timer_font = pygame.font.SysFont("monospace", 22, bold=True)
+watermark_font = pygame.font.SysFont("arial", 44, bold=True)
 
 recording = False
 frames = []
@@ -67,6 +69,14 @@ OUTPUT_DIR = os.path.join(SCRIPT_DIR, "downloads")
 
 def rgb_to_hex(rgb):
     return "%02x%02x%02x" % (rgb[0], rgb[1], rgb[2])
+
+
+def draw_watermark(target):
+    """Centered white label at WATERMARK_OPACITY (matches screen + GIF capture)."""
+    surf = watermark_font.render(WATERMARK_TEXT, True, (255, 255, 255))
+    surf.set_alpha(int(255 * WATERMARK_OPACITY))
+    rect = surf.get_rect(center=(CENTER_X, CENTER_Y))
+    target.blit(surf, rect)
 
 
 def gif_path_for_current_scheme():
@@ -136,6 +146,8 @@ def capture_frame_transparent():
 
     pygame.draw.circle(frame_surf, scheme["ball"], (int(ball_x), int(ball_y)), RING_RADIUS)
     pygame.draw.circle(frame_surf, scheme["ball_highlight"], (int(ball_x), int(ball_y)), RING_RADIUS, 2)
+
+    draw_watermark(frame_surf)
 
     raw = pygame.image.tostring(frame_surf, "RGBA")
     img = Image.frombytes("RGBA", (WIDTH, HEIGHT), raw)
@@ -262,7 +274,7 @@ while running:
                     frames = []
                     frame_counter = 0
                     print(
-                        "Recording... auto-save when time ends or area is fully cleared."
+                        f"Recording {TARGET_TIME:.0f}s... auto-save when timer reaches zero."
                     )
                 else:
                     save_gif()
@@ -330,9 +342,7 @@ while running:
             clear_pct = estimate_clear_percentage()
             clear_timer = 0
 
-    if recording and (
-        elapsed >= TARGET_TIME or clear_pct >= CLEAR_COMPLETE_THRESHOLD
-    ):
+    if recording and elapsed >= TARGET_TIME:
         save_gif()
 
     screen.fill(scheme["bg"])
@@ -364,6 +374,8 @@ while running:
 
     pygame.draw.circle(screen, scheme["ball"], (int(ball_x), int(ball_y)), RING_RADIUS)
     pygame.draw.circle(screen, scheme["ball_highlight"], (int(ball_x), int(ball_y)), RING_RADIUS, 2)
+
+    draw_watermark(screen)
 
     remaining = max(0.0, TARGET_TIME - elapsed)
     mins = int(remaining) // 60
