@@ -25,6 +25,8 @@ export function buildPhysicsDefaults() {
   };
 }
 
+export type TrailMode = "erase" | "paint";
+
 export interface StudioConfig {
   watermarkText: string;
   watermarkOpacity: number;
@@ -37,6 +39,7 @@ export interface StudioConfig {
   gravity: number;
   restitution: number;
   eraserStart: number;
+  trailMode: TrailMode;
   soundEnabled: boolean;
   soundPalette: "pentatonic" | "escalating" | "chime" | "marimba";
   transparentBackground: boolean;
@@ -60,6 +63,7 @@ export function normalizeStudioConfig(config: StudioConfig): StudioConfig {
     eraserStart,
     watermarkOpacity: clamp(config.watermarkOpacity, 0.05, 0.8),
     ballHue: ((config.ballHue % 1) + 1) % 1,
+    trailMode: config.trailMode === "paint" ? "paint" : "erase",
     soundEnabled: config.soundEnabled ?? true,
     soundPalette: config.soundPalette ?? "pentatonic",
     transparentBackground: config.transparentBackground ?? false,
@@ -75,6 +79,7 @@ export const defaultStudioConfig = (): StudioConfig => {
     baseHue,
     ballHue: (baseHue + 0.5) % 1,
     ...buildPhysicsDefaults(),
+    trailMode: "erase",
     soundEnabled: true,
     soundPalette: "pentatonic",
     transparentBackground: false,

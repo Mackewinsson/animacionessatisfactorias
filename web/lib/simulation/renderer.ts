@@ -1,6 +1,6 @@
 import { CENTER_X, CENTER_Y, HEIGHT, WIDTH } from "./constants";
-import { rgbCss } from "./colors";
-import type { ColorScheme, StudioConfig } from "./types";
+import { paintModeBallDisplay, rgbCss } from "./colors";
+import type { ColorScheme, StudioConfig, TrailMode } from "./types";
 
 /** Persistent layer: dark background + arena fill (drawn once per reset). */
 export class SceneBuffer {
@@ -14,31 +14,47 @@ export class SceneBuffer {
     this.ctx = this.canvas.getContext("2d")!;
   }
 
-  /** Dark background + filled white arena circle (no per-frame clear). */
-  initArena(scheme: ColorScheme, borderRadius: number, transparent: boolean): void {
+  /** Arena setup for erase (white disk) or paint (white disk or empty when transparent). */
+  initArena(
+    scheme: ColorScheme,
+    borderRadius: number,
+    transparent: boolean,
+    trailMode: TrailMode,
+  ): void {
     const ctx = this.ctx;
     ctx.globalCompositeOperation = "source-over";
     ctx.clearRect(0, 0, WIDTH, HEIGHT);
-    
+
+    if (trailMode === "paint") {
+      if (!transparent) {
+        ctx.fillStyle = rgbCss(scheme.bg);
+        ctx.fillRect(0, 0, WIDTH, HEIGHT);
+        ctx.fillStyle = "#ffffff";
+        ctx.beginPath();
+        ctx.arc(CENTER_X, CENTER_Y, borderRadius, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      return;
+    }
+
     if (!transparent) {
       ctx.fillStyle = rgbCss(scheme.bg);
       ctx.fillRect(0, 0, WIDTH, HEIGHT);
     }
-    
     ctx.fillStyle = "#ffffff";
     ctx.beginPath();
     ctx.arc(CENTER_X, CENTER_Y, borderRadius, 0, Math.PI * 2);
     ctx.fill();
   }
 
-  /** ASMR "color consuming" stroke along the ball path. */
-  drawEraserTrail(
+  /** Erase stroke along the ball path (classic ASMR). */
+  drawEraseTrail(
     fromX: number,
     fromY: number,
     toX: number,
     toY: number,
     brushRadius: number,
-    trailColor: string,
+    eraseColor: string,
     transparent: boolean,
   ): void {
     if (fromX === toX && fromY === toY) return;
@@ -49,7 +65,7 @@ export class SceneBuffer {
       ctx.strokeStyle = "rgba(0,0,0,1)";
     } else {
       ctx.globalCompositeOperation = "source-over";
-      ctx.strokeStyle = trailColor;
+      ctx.strokeStyle = eraseColor;
     }
 
     ctx.lineWidth = brushRadius * 2;
@@ -59,16 +75,14 @@ export class SceneBuffer {
     ctx.moveTo(fromX, fromY);
     ctx.lineTo(toX, toY);
     ctx.stroke();
-
     ctx.globalCompositeOperation = "source-over";
   }
 
-  /** Stamp a circular eraser (used at wall contact). */
-  drawEraserDisc(
+  drawEraseDisc(
     x: number,
     y: number,
     brushRadius: number,
-    trailColor: string,
+    eraseColor: string,
     transparent: boolean,
   ): void {
     if (brushRadius <= 0) return;
@@ -79,26 +93,22 @@ export class SceneBuffer {
       ctx.fillStyle = "rgba(0,0,0,1)";
     } else {
       ctx.globalCompositeOperation = "source-over";
-      ctx.fillStyle = trailColor;
+      ctx.fillStyle = eraseColor;
     }
 
     ctx.beginPath();
     ctx.arc(x, y, brushRadius, 0, Math.PI * 2);
     ctx.fill();
-
     ctx.globalCompositeOperation = "source-over";
   }
 
-  /**
-   * Fill only the thin unclean ring at the arena edge (ball brush stops short of the wall).
-   */
-  drawWallGapFill(
+  drawWallGapErase(
     ballX: number,
     ballY: number,
     borderRadius: number,
     ballRadius: number,
     brushRadius: number,
-    trailColor: string,
+    eraseColor: string,
     transparent: boolean,
   ): void {
     const dx = ballX - CENTER_X;
@@ -108,36 +118,100 @@ export class SceneBuffer {
 
     const nx = dx / dist;
     const ny = dy / dist;
-
-    // To ensure the eraser erases all the way to the wall, we stamp a disc at the wall
-    // with a radius equal to the maximum of the brush radius and the ball radius.
-    // This perfectly covers any gap between the eraser trail and the outer border
-    // without leaving any thin unclean ring or sliver.
     const stampRadius = Math.max(brushRadius, ballRadius);
     const stampDist = borderRadius - stampRadius;
     const stampX = CENTER_X + nx * stampDist;
     const stampY = CENTER_Y + ny * stampDist;
 
-    this.drawEraserDisc(stampX, stampY, stampRadius, trailColor, transparent);
+    this.drawEraseDisc(stampX, stampY, stampRadius, eraseColor, transparent);
   }
 
-  /** Fill remaining white arena when progress hits 1.0 */
-  fillArenaConsumed(trailColor: string, borderRadius: number, transparent: boolean): void {
+  fillArenaErased(eraseColor: string, borderRadius: number, transparent: boolean): void {
     const ctx = this.ctx;
-    
+
     if (transparent) {
       ctx.globalCompositeOperation = "destination-out";
       ctx.fillStyle = "rgba(0,0,0,1)";
     } else {
       ctx.globalCompositeOperation = "source-over";
-      ctx.fillStyle = trailColor;
+      ctx.fillStyle = eraseColor;
     }
-    
+
     ctx.beginPath();
     ctx.arc(CENTER_X, CENTER_Y, borderRadius, 0, Math.PI * 2);
     ctx.fill();
-    
     ctx.globalCompositeOperation = "source-over";
+  }
+
+  /** Paint stroke along the ball path. */
+  drawPaintTrail(
+    fromX: number,
+    fromY: number,
+    toX: number,
+    toY: number,
+    brushRadius: number,
+    paintColor: string,
+  ): void {
+    if (fromX === toX && fromY === toY) return;
+    const ctx = this.ctx;
+
+    ctx.globalCompositeOperation = "source-over";
+    ctx.strokeStyle = paintColor;
+    ctx.lineWidth = brushRadius * 2;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.beginPath();
+    ctx.moveTo(fromX, fromY);
+    ctx.lineTo(toX, toY);
+    ctx.stroke();
+  }
+
+  /** Stamp a circular paint dab (used at wall contact). */
+  drawPaintDisc(x: number, y: number, brushRadius: number, paintColor: string): void {
+    if (brushRadius <= 0) return;
+    const ctx = this.ctx;
+
+    ctx.globalCompositeOperation = "source-over";
+    ctx.fillStyle = paintColor;
+    ctx.beginPath();
+    ctx.arc(x, y, brushRadius, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  /** Fill the thin unpainted ring at the arena edge after a wall bounce. */
+  drawWallGapPaint(
+    ballX: number,
+    ballY: number,
+    borderRadius: number,
+    ballRadius: number,
+    brushRadius: number,
+    paintColor: string,
+  ): void {
+    const dx = ballX - CENTER_X;
+    const dy = ballY - CENTER_Y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist < 1e-6) return;
+
+    const nx = dx / dist;
+    const ny = dy / dist;
+    const stampRadius = Math.max(brushRadius, ballRadius);
+    const stampDist = borderRadius - stampRadius;
+    const stampX = CENTER_X + nx * stampDist;
+    const stampY = CENTER_Y + ny * stampDist;
+
+    this.drawPaintDisc(stampX, stampY, stampRadius, paintColor);
+  }
+
+  /** Fill remaining unpainted arena when progress hits 1.0 */
+  fillArenaPainted(paintColor: string, borderRadius: number, transparent: boolean): void {
+    if (transparent) return;
+
+    const ctx = this.ctx;
+    ctx.globalCompositeOperation = "source-over";
+    ctx.fillStyle = paintColor;
+    ctx.beginPath();
+    ctx.arc(CENTER_X, CENTER_Y, borderRadius, 0, Math.PI * 2);
+    ctx.fill();
   }
 }
 
@@ -147,12 +221,29 @@ export function drawBall(
   ballX: number,
   ballY: number,
   ringRadius: number,
+  opts?: { paintMode?: boolean; paintHue?: number },
 ): void {
-  ctx.fillStyle = rgbCss(scheme.ball);
+  const paintDisplay =
+    opts?.paintMode && opts.paintHue !== undefined
+      ? paintModeBallDisplay(opts.paintHue)
+      : null;
+
+  const fill = paintDisplay?.fill ?? scheme.ball;
+  const highlight = paintDisplay?.highlight ?? scheme.ballHighlight;
+  const outline = paintDisplay?.outline;
+
   ctx.beginPath();
   ctx.arc(ballX, ballY, ringRadius, 0, Math.PI * 2);
+  ctx.fillStyle = rgbCss(fill);
   ctx.fill();
-  ctx.strokeStyle = rgbCss(scheme.ballHighlight);
+
+  if (outline) {
+    ctx.strokeStyle = rgbCss(outline);
+    ctx.lineWidth = Math.max(3, ringRadius * 0.22);
+    ctx.stroke();
+  }
+
+  ctx.strokeStyle = rgbCss(highlight);
   ctx.lineWidth = 2;
   ctx.stroke();
 }
@@ -174,6 +265,7 @@ export function drawScene(
     currentRadius: number;
     progress: number;
     frozen?: boolean;
+    ballHue?: number;
     confettiParticles?: Array<{
       x: number;
       y: number;
@@ -225,7 +317,10 @@ export function drawScene(
   ctx.stroke();
 
   if (!frozen) {
-    drawBall(ctx, scheme, ballX, ballY, currentRadius);
+    drawBall(ctx, scheme, ballX, ballY, currentRadius, {
+      paintMode: config.trailMode === "paint",
+      paintHue: opts.ballHue ?? config.ballHue,
+    });
   }
   drawWatermark(ctx, config.watermarkText, config.watermarkOpacity);
 
@@ -261,7 +356,11 @@ export function drawScene(
   ctx.fillText(`BOUNCES: ${bounceCount}`, 15, HEIGHT - 45);
   ctx.font = "bold 16px monospace";
   ctx.fillStyle = "rgb(100,180,255)";
-  ctx.fillText(`CLEARED: ${(clearPct * 100).toFixed(1)}%`, 15, HEIGHT - 22);
+  ctx.fillText(
+    `${config.trailMode === "paint" ? "PAINTED" : "CLEARED"}: ${(clearPct * 100).toFixed(1)}%`,
+    15,
+    HEIGHT - 22,
+  );
 
   if (recording) {
     ctx.fillStyle = "rgb(230,40,40)";
@@ -312,6 +411,7 @@ export function captureFrame(
     rotation: number;
     opacity: number;
   }>,
+  ballHue?: number,
 ): ImageData {
   const canvas = document.createElement("canvas");
   canvas.width = WIDTH;
@@ -331,15 +431,18 @@ export function captureFrame(
     currentRadius,
     progress,
     frozen,
+    ballHue,
     confettiParticles,
   });
   return ctx.getImageData(0, 0, WIDTH, HEIGHT);
 }
 
-/** % of arena interior that has been "consumed" (no longer white). */
-export function estimateClearPercentage(
+/** % of arena interior covered by the trail (erased or painted). */
+export function estimateTrailProgress(
   scene: SceneBuffer,
   borderRadius: number,
+  transparent: boolean,
+  trailMode: TrailMode,
 ): number {
   const scale = 6;
   const sw = Math.floor(WIDTH / scale);
@@ -354,7 +457,7 @@ export function estimateClearPercentage(
   const cy = CENTER_Y / scale;
   const br = borderRadius / scale;
   let count = 0;
-  let cleared = 0;
+  let covered = 0;
   for (let y = 0; y < sh; y++) {
     for (let x = 0; x < sw; x++) {
       const dx = x - cx;
@@ -365,12 +468,20 @@ export function estimateClearPercentage(
         const r = data[i];
         const g = data[i + 1];
         const b = data[i + 2];
-        // Consumed = dark trail/background (not white arena)
-        if (r + g + b < 600) cleared++;
+        const a = data[i + 3];
+        const isCovered =
+          trailMode === "paint"
+            ? transparent
+              ? a > 64
+              : r + g + b < 720
+            : transparent
+              ? a < 192
+              : r + g + b < 600;
+        if (isCovered) covered++;
       }
     }
   }
-  return count === 0 ? 0 : cleared / count;
+  return count === 0 ? 0 : covered / count;
 }
 
 export function drawConfetti(

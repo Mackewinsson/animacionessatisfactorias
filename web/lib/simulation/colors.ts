@@ -102,6 +102,28 @@ export function ballColorFromHue(ballHue: number): Rgb {
   return hsvToRgb(ballHue, 0.85, 0.92);
 }
 
+function relativeLuminance([r, g, b]: Rgb): number {
+  const channel = (v: number) => {
+    const c = v / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
+}
+
+/** High-contrast ball colors for paint mode (complement + outline vs trail). */
+export function paintModeBallDisplay(paintHue: number): {
+  fill: Rgb;
+  highlight: Rgb;
+  outline: Rgb;
+} {
+  const complement = (paintHue + 0.5) % 1;
+  const fill = hsvToRgb(complement, 0.92, 0.98);
+  const highlight = hsvToRgb(complement, 0.55, 1);
+  const outline: Rgb =
+    relativeLuminance(fill) > 0.55 ? [16, 16, 24] : [255, 255, 255];
+  return { fill, highlight, outline };
+}
+
 export function rgbCss(rgb: Rgb, alpha = 1): string {
   return alpha < 1
     ? `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${alpha})`

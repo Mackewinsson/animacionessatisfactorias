@@ -149,23 +149,31 @@ export function CustomizePanel({
 
       <section className="space-y-3 border-b border-zinc-800 pb-4">
         <h3 className="text-xs font-semibold uppercase tracking-wide text-violet-400">
-          Export
+          Trail mode
         </h3>
-        <label className="flex flex-col gap-1 cursor-pointer pt-1">
-          <div className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={config.transparentBackground}
-              disabled={disabled}
-              onChange={(e) => patch({ transparentBackground: e.target.checked })}
-              className="rounded border-zinc-700 bg-zinc-950 text-violet-600 focus:ring-violet-500 w-4 h-4 cursor-pointer"
-            />
-            <span className="text-sm font-medium text-zinc-300">Transparent background</span>
-          </div>
-          <span className="text-xs text-zinc-500 pl-6">
-            Erase arena to transparent. Ideal for Final Cut Pro and overlays.
-          </span>
+        <label className="block space-y-1">
+          <span className="text-sm text-zinc-400">Ball effect</span>
+          <select
+            value={config.trailMode}
+            disabled={disabled}
+            onChange={(e) => {
+              const trailMode = e.target.value as StudioConfig["trailMode"];
+              patch({
+                trailMode,
+                transparentBackground: trailMode === "paint",
+              });
+            }}
+            className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-white"
+          >
+            <option value="erase">Erase arena (classic ASMR)</option>
+            <option value="paint">Paint strokes</option>
+          </select>
         </label>
+        <p className="text-xs text-zinc-500">
+          {config.trailMode === "paint"
+            ? "Ball paints colored strokes. Transparent background is on by default — change it in Advanced options."
+            : "Ball erases the white arena to reveal the background color."}
+        </p>
       </section>
 
       <section className="space-y-3">
@@ -205,6 +213,29 @@ export function CustomizePanel({
                 </label>
               </div>
             )}
+
+            <div className="space-y-3">
+              <h4 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                Export
+              </h4>
+              <label className="flex flex-col gap-1 cursor-pointer pt-1">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={config.transparentBackground}
+                    disabled={disabled}
+                    onChange={(e) => patch({ transparentBackground: e.target.checked })}
+                    className="rounded border-zinc-700 bg-zinc-950 text-violet-600 focus:ring-violet-500 w-4 h-4 cursor-pointer"
+                  />
+                  <span className="text-sm font-medium text-zinc-300">Transparent background</span>
+                </div>
+                <span className="text-xs text-zinc-500 pl-6">
+                  {config.trailMode === "paint"
+                    ? "Export paint strokes on a transparent canvas. Ideal for Final Cut Pro and overlays."
+                    : "Erase the arena to transparency instead of the arena background color."}
+                </span>
+              </label>
+            </div>
 
             <div className="space-y-3">
               <h4 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
@@ -274,7 +305,7 @@ export function CustomizePanel({
                 onChange={(restitution) => patch({ restitution })}
               />
               <RangeField
-                label="Eraser width"
+                label={config.trailMode === "paint" ? "Brush width" : "Eraser width"}
                 value={config.eraserStart}
                 min={4}
                 max={60}

@@ -14,6 +14,7 @@ export function computeRenderId(config: StudioConfig): string {
     gravity: config.gravity,
     restitution: config.restitution,
     eraserStart: config.eraserStart,
+    trailMode: config.trailMode,
     soundEnabled: config.soundEnabled,
     soundPalette: config.soundPalette,
     transparentBackground: config.transparentBackground,

@@ -14,7 +14,7 @@ export const CINEMATIC_CONFIG = {
   ballRadius: 24,
   initialVelocityX: 8,
   restitution: 1.0,
-  /** Eraser brush radius (line width = radius × 2 in renderer). */
+  /** Paint brush radius (line width = radius × 2 in renderer). */
   eraserStartFactor: 1.2,
   /** Hue shift on bounce when ballColorPerBounce is on (15° in template). */
   ballHueShiftPerBounce: 15 / 360,

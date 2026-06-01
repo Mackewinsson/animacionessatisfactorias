@@ -3,7 +3,7 @@ import { generateColorScheme, rgbCss } from "./colors";
 import {
   SceneBuffer,
   drawScene,
-  estimateClearPercentage,
+  estimateTrailProgress,
   captureFrame,
 } from "./renderer";
 import {
@@ -55,6 +55,13 @@ export class Simulation {
   /** Live ball hue (updates on bounce when ballColorPerBounce is on). */
   private activeBallHue = 0;
 
+  private syncTrailColor(): void {
+    this.trailColor =
+      this.config.trailMode === "paint"
+        ? rgbCss(this.scheme.ball)
+        : rgbCss(this.scheme.bg);
+  }
+
   constructor(config: StudioConfig) {
     this.config = normalizeStudioConfig(config);
     this.activeBallHue = this.config.ballHue;
@@ -63,13 +70,19 @@ export class Simulation {
       this.activeBallHue,
     );
     this.trailColor = rgbCss(this.scheme.bg);
+    this.syncTrailColor();
     this.scene = new SceneBuffer();
     this.initArena();
     this.resetState();
   }
 
   private initArena(): void {
-    this.scene.initArena(this.scheme, this.config.borderRadius, this.config.transparentBackground);
+    this.scene.initArena(
+      this.scheme,
+      this.config.borderRadius,
+      this.config.transparentBackground,
+      this.config.trailMode,
+    );
   }
 
   private beginAnimationClock(): void {
@@ -86,7 +99,8 @@ export class Simulation {
       this.config.ballHue !== prev.ballHue ||
       this.config.ballColorPerBounce !== prev.ballColorPerBounce ||
       this.config.borderRadius !== prev.borderRadius ||
-      this.config.transparentBackground !== prev.transparentBackground;
+      this.config.transparentBackground !== prev.transparentBackground ||
+      this.config.trailMode !== prev.trailMode;
     if (
       this.config.ballHue !== prev.ballHue ||
       this.config.ballColorPerBounce !== prev.ballColorPerBounce
@@ -98,7 +112,7 @@ export class Simulation {
       this.initArena();
       this.syncPrevBall();
     } else {
-      this.trailColor = rgbCss(this.scheme.bg);
+      this.syncTrailColor();
     }
     if (!this.isComplete) {
       this.clampBallInside();
@@ -120,7 +134,7 @@ export class Simulation {
       this.config.baseHue,
       this.activeBallHue,
     );
-    this.trailColor = rgbCss(this.scheme.bg);
+    this.syncTrailColor();
   }
 
   private shiftBallColorOnBounce(): void {
@@ -128,6 +142,7 @@ export class Simulation {
     this.activeBallHue =
       (this.activeBallHue + CINEMATIC_CONFIG.ballHueShiftPerBounce) % 1;
     this.scheme = generateColorScheme(this.config.baseHue, this.activeBallHue);
+    this.syncTrailColor();
   }
 
   private syncPrevBall(): void {
@@ -195,9 +210,14 @@ export class Simulation {
     this.elapsed = elapsedTime / 1000;
   }
 
-  private finalizeConsumption(): void {
+  private finalizeTrail(): void {
     if (this.isComplete) return;
-    this.scene.fillArenaConsumed(this.trailColor, this.config.borderRadius, this.config.transparentBackground);
+    const { borderRadius, transparentBackground, trailMode } = this.config;
+    if (trailMode === "paint") {
+      this.scene.fillArenaPainted(this.trailColor, borderRadius, transparentBackground);
+    } else {
+      this.scene.fillArenaErased(this.trailColor, borderRadius, transparentBackground);
+    }
     this.clearPct = 1;
     this.progress = 1;
     this.velX = 0;
@@ -258,7 +278,7 @@ export class Simulation {
     }
   }
 
-  getEraserRadius(): number {
+  getBrushRadius(): number {
     return this.config.eraserStart;
   }
 
@@ -272,7 +292,7 @@ export class Simulation {
 
     // Always run the full targetTime — do not end early when cleared or at max ball size.
     if (this.progress >= 1.0) {
-      this.finalizeConsumption();
+      this.finalizeTrail();
       return;
     }
 
@@ -304,27 +324,52 @@ export class Simulation {
     this.velY = resolved.velY;
     this.displaySpeed = Math.hypot(this.velX, this.velY);
 
-    const eraserR = this.getEraserRadius();
-    this.scene.drawEraserTrail(
-      prevX,
-      prevY,
-      this.ballX,
-      this.ballY,
-      eraserR,
-      this.trailColor,
-      this.config.transparentBackground,
-    );
+    const brushR = this.getBrushRadius();
+    const transparent = this.config.transparentBackground;
+    const trailColor = this.trailColor;
 
-    if (resolved.collided) {
-      this.scene.drawWallGapFill(
+    if (this.config.trailMode === "paint") {
+      this.scene.drawPaintTrail(
+        prevX,
+        prevY,
         this.ballX,
         this.ballY,
-        borderRadius,
-        ballR,
-        eraserR,
-        this.trailColor,
-        this.config.transparentBackground,
+        brushR,
+        trailColor,
       );
+    } else {
+      this.scene.drawEraseTrail(
+        prevX,
+        prevY,
+        this.ballX,
+        this.ballY,
+        brushR,
+        trailColor,
+        transparent,
+      );
+    }
+
+    if (resolved.collided) {
+      if (this.config.trailMode === "paint") {
+        this.scene.drawWallGapPaint(
+          this.ballX,
+          this.ballY,
+          borderRadius,
+          ballR,
+          brushR,
+          trailColor,
+        );
+      } else {
+        this.scene.drawWallGapErase(
+          this.ballX,
+          this.ballY,
+          borderRadius,
+          ballR,
+          brushR,
+          trailColor,
+          transparent,
+        );
+      }
       this.bounceCount += 1;
       this.shiftBallColorOnBounce();
       if (this.onBounceCallback) {
@@ -336,11 +381,21 @@ export class Simulation {
     this.prevBallY = this.ballY;
 
     if (this.recording) {
-      this.clearPct = estimateClearPercentage(this.scene, borderRadius);
+      this.clearPct = estimateTrailProgress(
+        this.scene,
+        borderRadius,
+        this.config.transparentBackground,
+        this.config.trailMode,
+      );
     } else {
       this.clearTimer += dtMs;
       if (this.clearTimer > 1500) {
-        this.clearPct = estimateClearPercentage(this.scene, borderRadius);
+        this.clearPct = estimateTrailProgress(
+          this.scene,
+          borderRadius,
+          this.config.transparentBackground,
+          this.config.trailMode,
+        );
         this.clearTimer = 0;
       }
     }
@@ -370,6 +425,7 @@ export class Simulation {
       currentRadius: this.currentRadius,
       progress: this.progress,
       frozen: this.isComplete,
+      ballHue: this.activeBallHue,
       confettiParticles: this.confettiParticles,
     });
   }
@@ -385,6 +441,7 @@ export class Simulation {
       this.progress,
       this.isComplete,
       this.confettiParticles,
+      this.activeBallHue,
     );
   }
 }

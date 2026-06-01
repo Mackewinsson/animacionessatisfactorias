@@ -47,11 +47,7 @@ export function resumeAudioCtx(): void {
 function playBounceNote(config: StudioConfig, bounceCount: number, speed: number) {
   if (!config.soundEnabled) return;
   const ctx = getAudioContext();
-  if (!ctx) return;
-
-  if (ctx.state === "suspended") {
-    void ctx.resume();
-  }
+  if (!ctx || ctx.state !== "running") return;
 
   scheduleBounceNote(ctx, ctx.destination, config, bounceCount, speed, ctx.currentTime);
   if (activeRecordingNode) {
@@ -193,6 +189,16 @@ export function BouncingRingCanvas({
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    const unlock = () => resumeAudioCtx();
+    window.addEventListener("pointerdown", unlock, { once: true, capture: true });
+    window.addEventListener("keydown", unlock, { once: true, capture: true });
+    return () => {
+      window.removeEventListener("pointerdown", unlock, { capture: true });
+      window.removeEventListener("keydown", unlock, { capture: true });
+    };
   }, []);
 
   useEffect(() => {
@@ -482,20 +488,15 @@ export function BouncingRingCanvas({
         ref={canvasRef}
         width={WIDTH}
         height={HEIGHT}
-        onClick={resumeAudioCtx}
-        className={`max-w-full h-auto rounded-xl border border-zinc-700 shadow-2xl cursor-pointer ${
+        className={`max-w-full h-auto rounded-xl border border-zinc-700 shadow-2xl ${
           config.transparentBackground ? "canvas-checkerboard" : ""
         }`}
         style={{ width: "min(100%, 800px)", aspectRatio: "1" }}
-        title="Click to enable sound"
       />
       <div className="flex gap-2 text-sm">
         <button
           type="button"
-          onClick={() => {
-            resumeAudioCtx();
-            handleReset();
-          }}
+          onClick={handleReset}
           className="rounded-lg border border-zinc-600 px-4 py-2 hover:bg-zinc-800"
         >
           Reset preview
@@ -503,7 +504,6 @@ export function BouncingRingCanvas({
         <button
           type="button"
           onClick={() => {
-            resumeAudioCtx();
             setPreviewing((p) => !p);
             if (simRef.current?.isComplete) {
               rafRef.current = requestAnimationFrame(loop);
