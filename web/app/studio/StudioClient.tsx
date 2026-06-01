@@ -20,14 +20,8 @@ import {
 
 export function StudioClient() {
   const searchParams = useSearchParams();
-  const [config, setConfig] = useState<StudioConfig>(() => {
-    const baseHue = Math.random();
-    return normalizeStudioConfig({
-      ...defaultStudioConfig(),
-      baseHue,
-      ballHue: (baseHue + 0.5) % 1,
-    });
-  });
+  // Deterministic initial state so SSR and first client render match (no Math.random here).
+  const [config, setConfig] = useState<StudioConfig>(() => defaultStudioConfig());
   const [generating, setGenerating] = useState(false);
   const [exportType, setExportType] = useState<"gif" | "zip" | "webm" | "mp4">("mp4");
   
@@ -60,6 +54,17 @@ export function StudioClient() {
       else setStatus(res.message ?? "Payment pending.");
     })();
   }, [searchParams, renderId]);
+
+  useEffect(() => {
+    const baseHue = Math.random();
+    setConfig((c) =>
+      normalizeStudioConfig({
+        ...c,
+        baseHue,
+        ballHue: (baseHue + 0.5) % 1,
+      }),
+    );
+  }, []);
 
   const handleRandomize = () => {
     const baseHue = Math.random();
