@@ -404,8 +404,7 @@ export class WebMAlphaRecorder {
     }
 
     try {
-      // Capture the canvas stream at the desired frame rate
-      this.stream = (canvas as any).captureStream ? (canvas as any).captureStream(fps) : null;
+      this.stream = canvas.captureStream(fps);
       if (this.stream) {
         if (audioStream) {
           const audioTrack = audioStream.getAudioTracks()[0];
@@ -529,8 +528,8 @@ export class AudioWavRecorder {
       sampleRate: this.context.sampleRate,
     });
 
-    audioBuffer.copyToChannel(leftBuffer as any, 0);
-    audioBuffer.copyToChannel(rightBuffer as any, 1);
+    audioBuffer.copyToChannel(new Float32Array(leftBuffer), 0);
+    audioBuffer.copyToChannel(new Float32Array(rightBuffer), 1);
 
     return bufferToWav(audioBuffer);
   }

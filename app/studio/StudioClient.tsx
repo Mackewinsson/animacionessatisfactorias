@@ -14,7 +14,7 @@ import {
   swapBallAndArenaColors,
 } from "@/lib/simulation/colors";
 import { computeRenderId } from "@/lib/renderId";
-import { isUnlocked, requestUnlock } from "@/lib/paywall";
+import { requestUnlock } from "@/lib/paywall";
 import {
   defaultStudioConfig,
   normalizeStudioConfig,
@@ -39,13 +39,14 @@ export function StudioClient() {
   const [payLoading, setPayLoading] = useState(false);
   const [payError, setPayError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
-  const [webmSupported, setWebmSupported] = useState(false);
+  const [webmSupported] = useState(
+    () => typeof window !== "undefined" && isWebMTransparentSupported(),
+  );
   const [mp4Supported, setMp4Supported] = useState(false);
 
   const renderId = useMemo(() => computeRenderId(config), [config]);
 
   useEffect(() => {
-    setWebmSupported(isWebMTransparentSupported());
     void isMp4ExportSupported().then(setMp4Supported);
   }, []);
 
@@ -60,15 +61,25 @@ export function StudioClient() {
   }, [searchParams, renderId]);
 
   useEffect(() => {
-    const baseHue = Math.random();
-    setConfig((c) =>
-      normalizeStudioConfig({
-        ...c,
-        baseHue,
-        ballHue: (baseHue + 0.5) % 1,
-      }),
-    );
+    const id = requestAnimationFrame(() => {
+      const baseHue = Math.random();
+      setConfig((c) =>
+        normalizeStudioConfig({
+          ...c,
+          baseHue,
+          ballHue: (baseHue + 0.5) % 1,
+        }),
+      );
+    });
+    return () => cancelAnimationFrame(id);
   }, []);
+
+  const clearExports = () => {
+    setGifExport(null);
+    setZipExport(null);
+    setWebMExport(null);
+    setMp4Export(null);
+  };
 
   const handleRandomize = () => {
     const baseHue = Math.random();
@@ -102,19 +113,12 @@ export function StudioClient() {
     );
   };
 
-  const clearExports = useCallback(() => {
-    setGifExport(null);
-    setZipExport(null);
-    setWebMExport(null);
-    setMp4Export(null);
-  }, []);
-
-  const handleResetAll = useCallback(() => {
+  const handleResetAll = () => {
     if (generating) return;
     clearExports();
     setStatus(null);
     setConfig(defaultStudioConfig());
-  }, [generating, clearExports]);
+  };
 
   const handleResetPhysics = () => {
     clearExports();

@@ -26,10 +26,16 @@ export function setActiveRecordingNode(node: AudioNode | null): void {
   activeRecordingNode = node;
 }
 
+type WindowWithWebkitAudio = Window & {
+  webkitAudioContext?: typeof AudioContext;
+};
+
 function getAudioContext(): AudioContext | null {
   if (typeof window === "undefined") return null;
   if (!audioCtx) {
-    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+    const AudioContextClass =
+      window.AudioContext ||
+      (window as WindowWithWebkitAudio).webkitAudioContext;
     if (AudioContextClass) {
       audioCtx = new AudioContextClass();
     }
@@ -283,7 +289,9 @@ export function BouncingRingCanvas({
     [generating, finishRecording, exportType, onProgress, scheduleAnimation],
   );
 
-  loopRef.current = loop;
+  useEffect(() => {
+    loopRef.current = loop;
+  }, [loop]);
 
   const restartPreview = useCallback(() => {
     const sim = simRef.current;
