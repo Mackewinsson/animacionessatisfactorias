@@ -340,7 +340,7 @@ export function drawScene(
 
   ctx.font = "bold 14px monospace";
   ctx.fillStyle = "rgb(140,140,160)";
-  ctx.fillText("SATISFYING PHYSICS LAB", 15, 48);
+  ctx.fillText("SATISFYING BALL VIDEOS", 15, 48);
 
   ctx.font = "bold 16px monospace";
   ctx.fillStyle = "rgb(200,200,210)";

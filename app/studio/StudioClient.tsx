@@ -224,7 +224,7 @@ export function StudioClient() {
           <Link href="/" className="text-sm text-violet-400 hover:text-violet-300">
             ← Home
           </Link>
-          <h1 className="text-lg font-semibold">Studio</h1>
+          <h1 className="text-lg font-semibold">Satisfying Ball Videos</h1>
           <span className="text-xs text-zinc-400 font-medium bg-zinc-900 border border-zinc-800 px-3 py-1 rounded-full">Creator Mode · Unlimited Local Exports</span>
         </div>
       </header>

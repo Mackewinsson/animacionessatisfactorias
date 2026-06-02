@@ -13,9 +13,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Satisfying Ring Studio",
+  title: "Satisfying Ball Videos",
   description:
-    "Customize and export satisfying bouncing-ring GIF animations for social media.",
+    "Customize and export satisfying ball videos for social media.",
 };
 
 export default function RootLayout({

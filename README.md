@@ -1,6 +1,6 @@
-# Satisfying Ring Studio
+# Satisfying Ball Videos
 
-Next.js app: customize the bouncing-ring animation in the browser and export MP4, GIF, WebM, or PNG sequences.
+Next.js app: customize the bouncing-ball animation in the browser and export MP4, GIF, WebM, or PNG sequences.
 
 ## Setup
 

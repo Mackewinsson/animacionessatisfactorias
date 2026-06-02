@@ -5,10 +5,10 @@ export default function HomePage() {
     <main className="min-h-screen bg-zinc-950 text-zinc-100">
       <div className="mx-auto flex max-w-3xl flex-col items-center px-6 py-20 text-center">
         <p className="text-sm font-medium uppercase tracking-widest text-violet-400">
-          Satisfying physics
+          Satisfying ball videos
         </p>
         <h1 className="mt-4 text-4xl font-bold tracking-tight sm:text-5xl">
-          Custom bouncing-ring animations
+          Custom bouncing-ball animations
         </h1>
         <p className="mt-6 text-lg text-zinc-400">
           Pick your colors, watermark, and length. Preview free in the browser.

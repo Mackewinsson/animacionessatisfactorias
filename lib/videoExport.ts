@@ -619,7 +619,7 @@ export function downloadBlob(
     .replace(/\..+/, "")
     .replace("T", "_")
     .slice(0, 15);
-  const filename = `satisfying_ring_${hex}_${stamp}.${extension}`;
+  const filename = `satisfyingballvideos_${hex}_${stamp}.${extension}`;
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
