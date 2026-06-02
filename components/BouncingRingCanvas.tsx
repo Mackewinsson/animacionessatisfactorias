@@ -13,6 +13,7 @@ import {
   audioBufferToWav,
   createRecordingDestination,
   Mp4Exporter,
+  MP4_FPS,
   PngSequenceExporter,
   WebMAlphaRecorder,
   AudioWavRecorder,
@@ -89,9 +90,6 @@ export function BouncingRingCanvas({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const simRef = useRef<Simulation | null>(null);
   const frameCounterRef = useRef(0);
-  const accumulatorRef = useRef(0);
-  const simTimeRef = useRef(0);
-  const physicsStepCounterRef = useRef(0);
   const gifEncoderRef = useRef<GifStreamEncoder | null>(null);
   const pngExporterRef = useRef<PngSequenceExporter | null>(null);
   const webmRecorderRef = useRef<WebMAlphaRecorder | null>(null);
@@ -245,58 +243,39 @@ export function BouncingRingCanvas({
         sim.shouldAnimate() &&
         !mp4ExportActiveRef.current
       ) {
-        const physicsStepMs = 1000 / 120; // 120 Hz physics step
-        accumulatorRef.current += dt;
-
-        if (accumulatorRef.current > 200) {
-          accumulatorRef.current = 200;
-        }
-
-        while (accumulatorRef.current >= physicsStepMs) {
-          simTimeRef.current += physicsStepMs;
-          sim.tick(simTimeRef.current, physicsStepMs);
-          accumulatorRef.current -= physicsStepMs;
-
-          if (generating && sim.recording && exportType !== "mp4") {
-            physicsStepCounterRef.current += 1;
-
-            // Capture at 30 fps (every 4 physics steps of 8.33ms)
-            if (physicsStepCounterRef.current % 4 === 0) {
-              if (exportType === "gif") {
-                gifEncoderRef.current?.addFrame(sim.captureTransparentFrame());
-              } else if (exportType === "zip") {
-                const dataUrl = canvas.toDataURL("image/png");
-                pngExporterRef.current?.addFrame(dataUrl);
-                const recordedFrames = pngExporterRef.current?.getFrameCount() ?? 0;
-                onProgress?.(`Captured frame ${recordedFrames}`);
-              } else if (exportType === "webm") {
-                onProgress?.(`Recording transparent video (Frame ${physicsStepCounterRef.current / 4})`);
-              }
-            }
-
-            if (sim.isRecordingComplete()) {
-              if (physicsStepCounterRef.current % 4 !== 0) {
-                if (exportType === "gif") {
-                  gifEncoderRef.current?.addFrame(sim.captureTransparentFrame());
-                } else if (exportType === "zip") {
-                  const dataUrl = canvas.toDataURL("image/png");
-                  pngExporterRef.current?.addFrame(dataUrl);
-                }
-              }
-              void finishRecording(sim);
-              accumulatorRef.current = 0;
-              break;
-            }
-          }
-
-          if (sim.isComplete && (!generating || !sim.recording || exportType === "mp4")) {
-            accumulatorRef.current = 0;
-            break;
-          }
-        }
+        sim.tick(time, dt);
       }
 
       sim.draw(ctx);
+
+      if (generating && sim.recording && exportType !== "mp4") {
+        frameCounterRef.current += 1;
+
+        if (frameCounterRef.current % FRAME_SKIP === 0) {
+          if (exportType === "gif") {
+            gifEncoderRef.current?.addFrame(sim.captureTransparentFrame());
+          } else if (exportType === "zip") {
+            const dataUrl = canvas.toDataURL("image/png");
+            pngExporterRef.current?.addFrame(dataUrl);
+            const recordedFrames = pngExporterRef.current?.getFrameCount() ?? 0;
+            onProgress?.(`Captured frame ${recordedFrames}`);
+          } else if (exportType === "webm") {
+            onProgress?.(`Recording transparent video (Frame ${frameCounterRef.current})`);
+          }
+        }
+
+        if (sim.isRecordingComplete()) {
+          if (frameCounterRef.current % FRAME_SKIP !== 0) {
+            if (exportType === "gif") {
+              gifEncoderRef.current?.addFrame(sim.captureTransparentFrame());
+            } else if (exportType === "zip") {
+              const dataUrl = canvas.toDataURL("image/png");
+              pngExporterRef.current?.addFrame(dataUrl);
+            }
+          }
+          void finishRecording(sim);
+        }
+      }
 
       // Freeze when simulation is complete and all chimes and confetti animations have finished
       if (sim.isComplete && !generating && !sim.shouldAnimate()) {
@@ -320,9 +299,6 @@ export function BouncingRingCanvas({
     sim.updateConfig(config);
     sim.resetState();
     lastTimeRef.current = 0;
-    accumulatorRef.current = 0;
-    simTimeRef.current = 0;
-    physicsStepCounterRef.current = 0;
     previewingRef.current = true;
     setPreviewing(true);
     scheduleAnimation();
@@ -356,10 +332,7 @@ export function BouncingRingCanvas({
     if (!sim || !canvas) return;
 
     frameCounterRef.current = 0;
-    physicsStepCounterRef.current = 0;
     lastTimeRef.current = 0;
-    accumulatorRef.current = 0;
-    simTimeRef.current = 0;
 
     const audioCtx = getAudioContext();
     if (audioCtx) resumeAudioCtx();
@@ -417,7 +390,9 @@ export function BouncingRingCanvas({
     if (!ctx) return;
 
     const wantsAudio = config.soundEnabled;
+    const stepMs = 1000 / MP4_FPS;
     const durationMs = config.targetTime * 1000;
+    const maxFrames = Math.ceil(config.targetTime * MP4_FPS);
 
     const runMp4Export = async () => {
       let audioDest: MediaStreamAudioDestinationNode | null = null;
@@ -446,13 +421,9 @@ export function BouncingRingCanvas({
       }
 
       const exporter = mp4ExporterRef.current;
-      const exportFps = exporter.fps;
-      const stepMs = 1000 / exportFps;
-      const maxFrames = Math.ceil(config.targetTime * exportFps);
       const useRealtimePacing = exporter.getMode() === "mediarecorder";
       const useLiveAudio = useRealtimePacing && wantsAudio && audioDest;
       const prevCallback = sim.onBounceCallback;
-      const physicsStepMs = 1000 / 120; // 120Hz physics sub-step size
 
       if (useLiveAudio) {
         setActiveRecordingNode(audioDest);
@@ -472,26 +443,19 @@ export function BouncingRingCanvas({
       sim.startRecording();
       sim.startTime = 0;
 
-      const stepsPerFrame = Math.round(120 / exportFps);
-
       for (let frame = 0; ; frame++) {
         if (cancelled || !sim.recording) break;
 
         const simNow = (durationMs * (frame + 1)) / maxFrames;
-        
-        // Run exactly stepsPerFrame physics sub-steps of 8.33ms (120Hz)
-        for (let s = 0; s < stepsPerFrame; s++) {
-          const stepTime = simNow - (stepsPerFrame - 1 - s) * physicsStepMs;
-          sim.tick(stepTime, physicsStepMs);
-        }
-        
+        const dtMs = durationMs / maxFrames;
+        sim.tick(simNow, dtMs);
         sim.draw(ctx);
         exporter.addFrame(sim.captureTransparentFrame());
 
         if (frame < maxFrames) {
-          onProgress?.(`Encoding frame ${frame + 1}/${maxFrames} @ ${exportFps} fps`);
+          onProgress?.(`Encoding frame ${frame + 1}/${maxFrames} @ 120 fps`);
         } else {
-          onProgress?.(`Encoding transitions (Confetti) @ ${exportFps} fps`);
+          onProgress?.(`Encoding transitions (Confetti) @ 120 fps`);
         }
 
         const safetyLimit = maxFrames + 300;
@@ -506,10 +470,7 @@ export function BouncingRingCanvas({
 
       // Ensure the final consumed frame is captured when we hit duration on the last tick.
       if (!sim.isComplete && !cancelled) {
-        for (let s = 0; s < stepsPerFrame; s++) {
-          const stepTime = durationMs - (stepsPerFrame - 1 - s) * physicsStepMs;
-          sim.tick(stepTime, physicsStepMs);
-        }
+        sim.tick(durationMs, durationMs / maxFrames);
         sim.draw(ctx);
         exporter.addFrame(sim.captureTransparentFrame());
       }
@@ -528,7 +489,7 @@ export function BouncingRingCanvas({
         onProgress?.("Rendering soundtrack…");
         let audioBlob: Blob | null = null;
         if (wantsAudio && exporter.getMode() === "webcodecs") {
-          const durationSec = exporter.getFrameCount() / exportFps;
+          const durationSec = exporter.getFrameCount() / MP4_FPS;
           const soundtrack = await renderBounceSoundtrack(
             config,
             bounceEventsRef.current,

@@ -87,7 +87,7 @@ async function isWebCodecsH264Supported(
  */
 export async function isMp4ExportSupported(): Promise<boolean> {
   if (typeof window === "undefined") return false;
-  if (await isWebCodecsH264Supported(1080, 1920)) return true;
+  if (await isWebCodecsH264Supported(WIDTH, HEIGHT)) return true;
   return getMp4MediaRecorderMimeType() !== null;
 }
 
@@ -210,18 +210,15 @@ export class Mp4Exporter {
   private recordedChunks: Blob[] = [];
   private stream: MediaStream | null = null;
   private mimeType = "video/mp4";
-  readonly fps: number;
 
   private constructor(
     mode: Mp4ExportMode,
     compositeOnBlack: boolean,
     width: number,
     height: number,
-    fps: number,
   ) {
     this.mode = mode;
     this.compositeOnBlack = compositeOnBlack;
-    this.fps = fps;
     this.exportCanvas = document.createElement("canvas");
     this.exportCanvas.width = width;
     this.exportCanvas.height = height;
@@ -235,14 +232,14 @@ export class Mp4Exporter {
     audioStream?: MediaStream,
     withAudio = false,
   ): Promise<Mp4Exporter> {
-    if (await isWebCodecsH264Supported(1080, 1920)) {
-      const exporter = new Mp4Exporter(
-        "webcodecs",
-        compositeOnBlack,
-        1080,
-        1920,
-        MP4_FPS,
-      );
+    const exporter = new Mp4Exporter(
+      "webcodecs",
+      compositeOnBlack,
+      WIDTH,
+      HEIGHT,
+    );
+
+    if (await isWebCodecsH264Supported(WIDTH, HEIGHT)) {
       exporter.initWebCodecs(withAudio);
       return exporter;
     }
@@ -252,13 +249,7 @@ export class Mp4Exporter {
       throw new Error("MP4 export is not supported in this browser.");
     }
 
-    const exporter = new Mp4Exporter(
-      "mediarecorder",
-      compositeOnBlack,
-      1080,
-      1920,
-      MP4_FPS,
-    );
+    exporter.mode = "mediarecorder";
     exporter.mimeType = mimeType;
     exporter.initMediaRecorder(mimeType, audioStream);
     return exporter;
@@ -267,7 +258,7 @@ export class Mp4Exporter {
   private initWebCodecs(withAudio: boolean): void {
     this.muxer = new Muxer({
       target: new ArrayBufferTarget(),
-      video: { codec: "avc", width: 1080, height: 1920 },
+      video: { codec: "avc", width: WIDTH, height: HEIGHT },
       ...(withAudio
         ? {
             audio: {
@@ -287,15 +278,15 @@ export class Mp4Exporter {
 
     this.videoEncoder.configure({
       codec: H264_CODEC,
-      width: 1080,
-      height: 1920,
+      width: WIDTH,
+      height: HEIGHT,
       bitrate: MP4_BITRATE,
-      framerate: this.fps,
+      framerate: MP4_FPS,
     });
   }
 
   private initMediaRecorder(mimeType: string, audioStream?: MediaStream): void {
-    this.stream = this.exportCanvas.captureStream(this.fps);
+    this.stream = this.exportCanvas.captureStream(MP4_FPS);
     if (audioStream) {
       const audioTrack = audioStream.getAudioTracks()[0];
       if (audioTrack) this.stream.addTrack(audioTrack);
@@ -311,23 +302,21 @@ export class Mp4Exporter {
   addFrame(imageData: ImageData): void {
     if (this.compositeOnBlack) {
       this.exportCtx.fillStyle = "#000000";
-      this.exportCtx.fillRect(0, 0, 1080, 1920);
+      this.exportCtx.fillRect(0, 0, WIDTH, HEIGHT);
     } else {
-      this.exportCtx.clearRect(0, 0, 1080, 1920);
+      this.exportCtx.clearRect(0, 0, WIDTH, HEIGHT);
     }
-    const x = (1080 - WIDTH) / 2;
-    const y = (1920 - HEIGHT) / 2;
-    this.exportCtx.putImageData(imageData, x, y);
+    this.exportCtx.putImageData(imageData, 0, 0);
 
     if (this.mode === "webcodecs" && this.videoEncoder) {
-      const durationUs = Math.round(1_000_000 / this.fps);
+      const durationUs = Math.round(1_000_000 / MP4_FPS);
       const timestamp = this.frameIndex * durationUs;
       const frame = new VideoFrame(this.exportCanvas, {
         timestamp,
         duration: durationUs,
       });
       this.videoEncoder.encode(frame, {
-        keyFrame: this.frameIndex % (this.fps * 2) === 0,
+        keyFrame: this.frameIndex % (MP4_FPS * 2) === 0,
       });
       frame.close();
     }
@@ -351,7 +340,7 @@ export class Mp4Exporter {
       if (this.frameIndex === 0) throw new Error("No frames recorded");
 
       if (audioWav && audioWav.size > 44) {
-        const durationSec = this.frameIndex / this.fps;
+        const durationSec = this.frameIndex / MP4_FPS;
         await muxWavAudio(audioWav, this.muxer, durationSec);
       }
 
@@ -415,6 +404,7 @@ export class WebMAlphaRecorder {
     }
 
     try {
+      // Capture the canvas stream at the desired frame rate
       this.stream = canvas.captureStream(fps);
       if (this.stream) {
         if (audioStream) {
@@ -629,7 +619,7 @@ export function downloadBlob(
     .replace(/\..+/, "")
     .replace("T", "_")
     .slice(0, 15);
-  const filename = `satisfyingballvideos_${hex}_${stamp}.${extension}`;
+  const filename = `satisfying_ring_${hex}_${stamp}.${extension}`;
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
