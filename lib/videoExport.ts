@@ -210,6 +210,7 @@ export class Mp4Exporter {
   private recordedChunks: Blob[] = [];
   private stream: MediaStream | null = null;
   private mimeType = "video/mp4";
+  readonly fps: number = MP4_FPS;
 
   private constructor(
     mode: Mp4ExportMode,
