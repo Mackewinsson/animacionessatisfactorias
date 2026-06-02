@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
+import { AuthNav } from "@/components/AuthNav";
 import { BouncingRingCanvas } from "@/components/BouncingRingCanvas";
 import { CustomizePanel } from "@/components/CustomizePanel";
 import { PayModal } from "@/components/PayModal";
@@ -16,7 +17,7 @@ import {
   rgbToHex,
 } from "@/lib/simulation/colors";
 import { computeRenderId } from "@/lib/renderId";
-import { requestUnlock } from "@/lib/paywall";
+import { requestUnlock, isUnlocked } from "@/lib/paywall";
 import {
   defaultStudioConfig,
   normalizeStudioConfig,
@@ -24,7 +25,13 @@ import {
   type StudioConfig,
 } from "@/lib/simulation/types";
 
-export function StudioClient() {
+export function StudioClient({
+  userId,
+  userFirstName,
+}: {
+  userId: string;
+  userFirstName: string | null;
+}) {
   const searchParams = useSearchParams();
   // Deterministic initial state so SSR and first client render match (no Math.random here).
   const [config, setConfig] = useState<StudioConfig>(() => defaultStudioConfig());
@@ -56,11 +63,11 @@ export function StudioClient() {
     const sessionId = searchParams.get("session_id");
     if (!sessionId) return;
     void (async () => {
-      const res = await requestUnlock(renderId, sessionId);
+      const res = await requestUnlock(renderId, sessionId, userId);
       if (res.unlocked) setStatus("Payment verified — you can download.");
       else setStatus(res.message ?? "Payment pending.");
     })();
-  }, [searchParams, renderId]);
+  }, [searchParams, renderId, userId]);
 
   useEffect(() => {
     const id = requestAnimationFrame(() => {
@@ -200,15 +207,19 @@ export function StudioClient() {
       setStatus("Generate an animation first.");
       return;
     }
-    
-    // Bypass paywall entirely for direct local video generation
-    runDownload();
+
+    if (isUnlocked(renderId, userId)) {
+      runDownload();
+      return;
+    }
+
+    setPayOpen(true);
   };
 
   const handleUnlock = async () => {
     setPayLoading(true);
     setPayError(null);
-    const res = await requestUnlock(renderId);
+    const res = await requestUnlock(renderId, undefined, userId);
     setPayLoading(false);
     if (res.unlocked) {
       setPayOpen(false);
@@ -233,8 +244,15 @@ export function StudioClient() {
           <Link href="/" className="text-sm text-violet-400 hover:text-violet-300">
             ← Home
           </Link>
-          <h1 className="text-lg font-semibold">Satisfying Ball Videos</h1>
-          <span className="text-xs text-zinc-400 font-medium bg-zinc-900 border border-zinc-800 px-3 py-1 rounded-full">Creator Mode · Unlimited Local Exports</span>
+          <h1 className="text-lg font-semibold absolute left-1/2 -translate-x-1/2">Satisfying Ball Videos</h1>
+          <div className="flex items-center gap-4">
+            {userFirstName && (
+              <span className="hidden sm:inline text-sm text-zinc-400">
+                Hi, {userFirstName}
+              </span>
+            )}
+            <AuthNav signInMode="redirect" signUpMode="redirect" />
+          </div>
         </div>
       </header>
 

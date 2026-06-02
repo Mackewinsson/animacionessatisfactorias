@@ -1,13 +1,16 @@
+import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 
 /**
  * Paywall unlock API (MVP stub).
  *
+ * Requires a signed-in Clerk user (see proxy.ts + auth() below).
+ *
  * Dev: set PAYWALL_BYPASS=true in .env.local to unlock without payment.
  *
  * Production (Stripe — wire later):
- * 1. Create Checkout Session with metadata.renderId
+ * 1. Create Checkout Session with metadata.renderId + metadata.userId
  * 2. On success redirect to /studio?session_id=cs_...
  * 3. Verify session here:
  *    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
@@ -15,6 +18,12 @@ import { randomUUID } from "crypto";
  *    if (session.payment_status !== "paid") return 402;
  */
 export async function POST(req: NextRequest) {
+  const { userId } = await auth();
+
+  if (!userId) {
+    return NextResponse.json({ message: "Sign in required" }, { status: 401 });
+  }
+
   let body: { renderId?: string; sessionId?: string };
   try {
     body = await req.json();
@@ -38,7 +47,7 @@ export async function POST(req: NextRequest) {
   }
 
   if (sessionId) {
-    // TODO: Stripe Checkout session verification
+    // TODO: Stripe Checkout session verification scoped to userId
     return NextResponse.json(
       {
         message:
@@ -51,7 +60,7 @@ export async function POST(req: NextRequest) {
   return NextResponse.json(
     {
       paymentRequired: true,
-      message: "Complete payment to download your GIF.",
+      message: "Complete payment to download your export.",
     },
     { status: 402 },
   );
