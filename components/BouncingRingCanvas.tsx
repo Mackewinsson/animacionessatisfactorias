@@ -496,11 +496,8 @@ export function BouncingRingCanvas({
         sim.draw(ctx);
         exporter.addFrame(sim.captureTransparentFrame());
 
-        if (frame < maxFrames) {
-          reportProgress(`Encoding frame ${frame + 1}/${maxFrames} @ ${exportFps} fps`);
-        } else {
-          reportProgress(`Encoding transitions (Confetti) @ ${exportFps} fps`);
-        }
+        const pct = Math.min(100, Math.round(((frame + 1) / maxFrames) * 100));
+        reportProgress(frame < maxFrames ? `${pct}` : "99");
 
         const safetyLimit = maxFrames + 300;
         if (sim.isRecordingComplete() || frame >= safetyLimit) break;
@@ -533,7 +530,7 @@ export function BouncingRingCanvas({
       }
 
       try {
-        reportProgress("Rendering soundtrack…");
+        reportProgress("99");
         let audioBlob: Blob | null = null;
         if (wantsAudio && exporter.getMode() === "webcodecs") {
           const durationSec = exporter.getFrameCount() / exportFps;
@@ -545,7 +542,7 @@ export function BouncingRingCanvas({
           audioBlob = audioBufferToWav(soundtrack);
         }
 
-        reportProgress("Finalizing MP4…");
+        reportProgress("99");
         const mp4Blob = await exporter.finish(audioBlob);
         mp4ExporterRef.current = null;
         setExportProgress(null);
@@ -604,12 +601,12 @@ export function BouncingRingCanvas({
         />
 
         {generating && exportType === "mp4" && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-5 rounded-xl bg-zinc-950/80 backdrop-blur-sm">
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 rounded-xl bg-zinc-950/85 backdrop-blur-sm">
             {/* Spinner */}
             <svg
               className="animate-spin"
-              width="52"
-              height="52"
+              width="48"
+              height="48"
               viewBox="0 0 52 52"
               fill="none"
               xmlns="http://www.w3.org/2000/svg"
@@ -623,12 +620,20 @@ export function BouncingRingCanvas({
               />
             </svg>
 
-            <div className="text-center space-y-1 px-6">
-              <p className="text-sm font-semibold text-zinc-100">Encoding MP4…</p>
-              {exportProgress && (
-                <p className="text-xs text-zinc-400 font-mono leading-snug">{exportProgress}</p>
-              )}
+            {/* Percentage */}
+            <p className="text-4xl font-bold tabular-nums text-white">
+              {exportProgress ?? "0"}%
+            </p>
+
+            {/* Progress bar */}
+            <div className="w-48 h-1.5 rounded-full bg-zinc-800 overflow-hidden">
+              <div
+                className="h-full bg-violet-500 rounded-full transition-all duration-150"
+                style={{ width: `${exportProgress ?? 0}%` }}
+              />
             </div>
+
+            <p className="text-xs text-zinc-500">Encoding MP4…</p>
           </div>
         )}
       </div>
