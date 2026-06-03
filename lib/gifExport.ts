@@ -1,11 +1,13 @@
 import { GIFEncoder, quantize, applyPalette } from "gifenc";
-import { FPS, FRAME_SKIP } from "./simulation/constants";
 import { rgbToHex } from "./simulation/colors";
 import type { Rgb } from "./simulation/types";
+import { MP4_FPS } from "./videoExport";
 
-const FRAME_DELAY_MS = Math.round(1000 / (FPS / FRAME_SKIP));
+/** Match MP4 export rate so GIF motion is equally smooth. */
+export const GIF_FPS = MP4_FPS;
+const FRAME_DELAY_MS = Math.round(1000 / GIF_FPS);
 
-/** Encodes frames one-by-one so a 60s capture does not hold ~1800 ImageData blobs in RAM. */
+/** Encodes frames one-by-one so a long capture does not hold every ImageData in RAM. */
 export class GifStreamEncoder {
   private gif = GIFEncoder();
   private frameCount = 0;

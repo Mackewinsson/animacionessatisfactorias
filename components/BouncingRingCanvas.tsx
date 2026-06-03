@@ -1,8 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Simulation, FRAME_SKIP, WIDTH, HEIGHT } from "@/lib/simulation/Simulation";
-import { GifStreamEncoder, type GifExportResult } from "@/lib/gifExport";
+import { Simulation, WIDTH, HEIGHT } from "@/lib/simulation/Simulation";
+import { GifStreamEncoder, GIF_FPS, type GifExportResult } from "@/lib/gifExport";
 import {
   type BounceEvent,
   renderBounceSoundtrack,
@@ -41,6 +41,53 @@ export function resumeAudioCtx(): void {
   const ctx = getAudioContext();
   if (ctx && ctx.state === "suspended") {
     void ctx.resume();
+  }
+}
+
+/** Live capture rate for ZIP / WebM (one frame every 4 × 120 Hz physics steps). */
+const LIVE_EXPORT_FPS = 30;
+
+type ExportKind = "gif" | "zip" | "webm" | "mp4";
+
+function captureFrameBudget(targetTimeSec: number): number {
+  return Math.ceil(targetTimeSec * LIVE_EXPORT_FPS);
+}
+
+function parseExportPercent(
+  text: string | null,
+  kind: ExportKind,
+  targetTimeSec: number,
+): number | null {
+  if (!text) return null;
+  const trimmed = text.trim();
+  if (/^\d+$/.test(trimmed)) {
+    return Math.min(100, Number.parseInt(trimmed, 10));
+  }
+  const zipPct = trimmed.match(/Compressing ZIP:\s*(\d+)%/i);
+  if (zipPct) return Math.min(100, Number.parseInt(zipPct[1], 10));
+
+  const frameMatch =
+    trimmed.match(/Captured frame (\d+)/i) ?? trimmed.match(/Frame (\d+)/i);
+  if (frameMatch && (kind === "zip" || kind === "webm")) {
+    const budget = captureFrameBudget(targetTimeSec);
+    return Math.min(99, Math.round((Number.parseInt(frameMatch[1], 10) / budget) * 100));
+  }
+  return null;
+}
+
+function exportStatusLabel(kind: ExportKind, progressText: string | null): string {
+  if (progressText && !/^\d+$/.test(progressText.trim())) {
+    return progressText;
+  }
+  switch (kind) {
+    case "mp4":
+      return "Encoding MP4…";
+    case "gif":
+      return "Encoding GIF…";
+    case "zip":
+      return "Capturing PNG sequence…";
+    case "webm":
+      return "Recording WebM…";
   }
 }
 
@@ -87,11 +134,11 @@ export function BouncingRingCanvas({
   const accumulatorRef = useRef(0);
   const simTimeRef = useRef(0);
   const physicsStepCounterRef = useRef(0);
-  const gifEncoderRef = useRef<GifStreamEncoder | null>(null);
   const pngExporterRef = useRef<PngSequenceExporter | null>(null);
   const webmRecorderRef = useRef<WebMAlphaRecorder | null>(null);
   const mp4ExporterRef = useRef<Mp4Exporter | null>(null);
   const mp4ExportActiveRef = useRef(false);
+  const gifExportActiveRef = useRef(false);
   const bounceEventsRef = useRef<BounceEvent[]>([]);
   const audioRecorderRef = useRef<AudioWavRecorder | null>(null);
   const rafRef = useRef<number>(0);
@@ -124,21 +171,7 @@ export function BouncingRingCanvas({
       if (!sim.recording) return;
       sim.stopRecording();
 
-      if (exportType === "gif") {
-        const encoder = gifEncoderRef.current;
-        gifEncoderRef.current = null;
-        frameCounterRef.current = 0;
-        if (encoder) {
-          try {
-            onRecordingComplete(encoder.finish());
-            onGeneratingChange(false);
-          } catch {
-            onGeneratingChange(false);
-          }
-        } else {
-          onGeneratingChange(false);
-        }
-      } else if (exportType === "zip") {
+      if (exportType === "zip") {
         const exporter = pngExporterRef.current;
         pngExporterRef.current = null;
         frameCounterRef.current = 0;
@@ -159,18 +192,21 @@ export function BouncingRingCanvas({
             if (audioBlob) {
               exporter.addAudio(audioBlob);
             }
-            onProgress?.("Creating ZIP archive...");
+            reportProgress("Creating ZIP archive…");
             const zipBlob = await exporter.finish((percent) => {
-              onProgress?.(`Compressing ZIP: ${percent}%`);
+              reportProgress(`Compressing ZIP: ${percent}%`);
             });
+            setExportProgress(null);
             onZipComplete(zipBlob);
             onGeneratingChange(false);
           } catch (e) {
             console.error("ZIP packaging failed:", e);
-            onProgress?.(e instanceof Error ? `ZIP Error: ${e.message}` : "ZIP Compilation failed.");
+            reportProgress(e instanceof Error ? `ZIP Error: ${e.message}` : "ZIP Compilation failed.");
+            setExportProgress(null);
             onGeneratingChange(false);
           }
         } else {
+          setExportProgress(null);
           onGeneratingChange(false);
         }
       } else if (exportType === "webm") {
@@ -182,26 +218,28 @@ export function BouncingRingCanvas({
 
         if (recorder) {
           try {
-            onProgress?.("Processing video file...");
+            reportProgress("Processing WebM…");
             const videoBlob = await recorder.stop();
+            setExportProgress(null);
             onWebMComplete(videoBlob);
             onGeneratingChange(false);
           } catch (e) {
             console.error("WebM recording failed:", e);
-            onProgress?.(e instanceof Error ? `WebM Error: ${e.message}` : "WebM Processing failed.");
+            reportProgress(e instanceof Error ? `WebM Error: ${e.message}` : "WebM Processing failed.");
+            setExportProgress(null);
             onGeneratingChange(false);
           }
         } else {
+          setExportProgress(null);
           onGeneratingChange(false);
         }
       }
     },
     [
       onGeneratingChange,
-      onRecordingComplete,
       onZipComplete,
       onWebMComplete,
-      onProgress,
+      reportProgress,
       exportType,
     ],
   );
@@ -247,7 +285,8 @@ export function BouncingRingCanvas({
       if (
         (previewingRef.current || generating) &&
         sim.shouldAnimate() &&
-        !mp4ExportActiveRef.current
+        !mp4ExportActiveRef.current &&
+        !gifExportActiveRef.current
       ) {
         const physicsStepMs = 1000 / 120; // 120 Hz physics step
         accumulatorRef.current += dt;
@@ -269,25 +308,22 @@ export function BouncingRingCanvas({
           if (generating && sim.recording && exportType !== "mp4") {
             physicsStepCounterRef.current += 1;
 
-            // Capture at 30 fps (every 4 physics steps of 8.33ms)
             if (physicsStepCounterRef.current % 4 === 0) {
-              if (exportType === "gif") {
-                gifEncoderRef.current?.addFrame(sim.captureTransparentFrame());
-              } else if (exportType === "zip") {
+              if (exportType === "zip") {
                 const dataUrl = canvas.toDataURL("image/png");
                 pngExporterRef.current?.addFrame(dataUrl);
                 const recordedFrames = pngExporterRef.current?.getFrameCount() ?? 0;
-                onProgress?.(`Captured frame ${recordedFrames}`);
+                reportProgress(`Captured frame ${recordedFrames}`);
               } else if (exportType === "webm") {
-                onProgress?.(`Recording transparent video (Frame ${physicsStepCounterRef.current / 4})`);
+                reportProgress(
+                  `Recording transparent video (Frame ${Math.ceil(physicsStepCounterRef.current / 4)})`,
+                );
               }
             }
 
             if (sim.isRecordingComplete()) {
               if (physicsStepCounterRef.current % 4 !== 0) {
-                if (exportType === "gif") {
-                  gifEncoderRef.current?.addFrame(sim.captureTransparentFrame());
-                } else if (exportType === "zip") {
+                if (exportType === "zip") {
                   const dataUrl = canvas.toDataURL("image/png");
                   pngExporterRef.current?.addFrame(dataUrl);
                 }
@@ -316,7 +352,7 @@ export function BouncingRingCanvas({
         scheduleAnimation();
       }
     },
-    [generating, finishRecording, exportType, onProgress, scheduleAnimation],
+    [generating, finishRecording, exportType, reportProgress, scheduleAnimation],
   );
 
   loopRef.current = loop;
@@ -357,7 +393,7 @@ export function BouncingRingCanvas({
   }, [scheduleAnimation]);
 
   useEffect(() => {
-    if (!generating || exportType === "mp4") return;
+    if (!generating || exportType === "mp4" || exportType === "gif") return;
     const sim = simRef.current;
     const canvas = canvasRef.current;
     if (!sim || !canvas) return;
@@ -372,9 +408,7 @@ export function BouncingRingCanvas({
     if (audioCtx) resumeAudioCtx();
 
     const startRecording = async () => {
-      if (exportType === "gif") {
-        gifEncoderRef.current = new GifStreamEncoder();
-      } else if (exportType === "zip") {
+      if (exportType === "zip") {
         pngExporterRef.current = new PngSequenceExporter();
         if (audioCtx) {
           const dest = createRecordingDestination(audioCtx);
@@ -394,6 +428,7 @@ export function BouncingRingCanvas({
       }
 
       sim.startRecording();
+      reportProgress("0");
       scheduleAnimation();
     };
 
@@ -404,8 +439,85 @@ export function BouncingRingCanvas({
     exportType,
     config.transparentBackground,
     config.soundEnabled,
+    reportProgress,
+  ]);
+
+  useEffect(() => {
+    if (!generating || exportType !== "gif") return;
+
+    const sim = simRef.current;
+    const canvas = canvasRef.current;
+    if (!sim || !canvas) return;
+
+    let cancelled = false;
+    gifExportActiveRef.current = true;
+    const encoder = new GifStreamEncoder();
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const durationMs = config.targetTime * 1000;
+    const exportFps = GIF_FPS;
+    const stepMs = 1000 / exportFps;
+    const maxFrames = Math.ceil(config.targetTime * exportFps);
+    const runGifExport = async () => {
+      sim.startRecording();
+      sim.startTime = 0;
+
+      for (let frame = 0; ; frame++) {
+        if (cancelled || !sim.recording) break;
+
+        const simNow = (durationMs * (frame + 1)) / maxFrames;
+        sim.tick(simNow, stepMs);
+        sim.draw(ctx);
+        encoder.addFrame(sim.captureTransparentFrame());
+
+        const pct = Math.min(100, Math.round(((frame + 1) / maxFrames) * 100));
+        reportProgress(`${pct}`);
+
+        const safetyLimit = maxFrames + 300;
+        if (sim.isRecordingComplete() || frame >= safetyLimit) break;
+
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+      }
+
+      if (!sim.isComplete && !cancelled) {
+        sim.tick(durationMs, stepMs);
+        sim.draw(ctx);
+        encoder.addFrame(sim.captureTransparentFrame());
+      }
+
+      sim.stopRecording();
+      gifExportActiveRef.current = false;
+
+      if (cancelled) return;
+
+      try {
+        reportProgress("99");
+        const result = encoder.finish();
+        setExportProgress(null);
+        onRecordingComplete(result);
+        onGeneratingChange(false);
+      } catch (e) {
+        console.error("GIF export failed:", e);
+        reportProgress(e instanceof Error ? `GIF Error: ${e.message}` : "GIF export failed.");
+        setExportProgress(null);
+        onGeneratingChange(false);
+      }
+    };
+
+    void runGifExport();
+
+    return () => {
+      cancelled = true;
+      gifExportActiveRef.current = false;
+    };
+  }, [
+    generating,
+    exportType,
+    config.targetTime,
     onGeneratingChange,
-    onProgress,
+    onRecordingComplete,
+    reportProgress,
   ]);
 
   useEffect(() => {
@@ -569,8 +681,15 @@ export function BouncingRingCanvas({
     config,
     onGeneratingChange,
     onMp4Complete,
-    onProgress,
+    reportProgress,
   ]);
+
+  const exportPercent = parseExportPercent(
+    exportProgress,
+    exportType,
+    config.targetTime,
+  );
+  const exportStatus = exportStatusLabel(exportType, exportProgress);
 
   const handleReset = () => {
     if (generating) return;
@@ -583,7 +702,7 @@ export function BouncingRingCanvas({
 
   return (
     <div className="flex flex-col items-center gap-3">
-      {/* Canvas wrapper — overlay is shown during MP4 encoding */}
+      {/* Canvas wrapper — overlay during any export */}
       <div
         className="relative"
         style={{ width: "min(100%, 800px)", aspectRatio: "1" }}
@@ -595,13 +714,13 @@ export function BouncingRingCanvas({
           className={`w-full h-full rounded-xl border border-zinc-700 shadow-2xl ${
             config.transparentBackground ? "canvas-checkerboard" : ""
           } ${
-            generating && exportType === "mp4" ? "opacity-20" : ""
+            generating ? "opacity-20" : ""
           }`}
           style={{ display: "block", transition: "opacity 0.3s" }}
         />
 
-        {generating && exportType === "mp4" && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 rounded-xl bg-zinc-950/85 backdrop-blur-sm">
+        {generating && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 rounded-xl bg-zinc-950/85 backdrop-blur-sm px-4 text-center">
             {/* Spinner */}
             <svg
               className="animate-spin"
@@ -620,20 +739,24 @@ export function BouncingRingCanvas({
               />
             </svg>
 
-            {/* Percentage */}
-            <p className="text-4xl font-bold tabular-nums text-white">
-              {exportProgress ?? "0"}%
-            </p>
+            {exportPercent !== null ? (
+              <p className="text-4xl font-bold tabular-nums text-white">{exportPercent}%</p>
+            ) : (
+              <p className="text-2xl font-semibold text-white">Exporting…</p>
+            )}
 
-            {/* Progress bar */}
             <div className="w-48 h-1.5 rounded-full bg-zinc-800 overflow-hidden">
               <div
                 className="h-full bg-violet-500 rounded-full transition-all duration-150"
-                style={{ width: `${exportProgress ?? 0}%` }}
+                style={{
+                  width:
+                    exportPercent !== null ? `${exportPercent}%` : "100%",
+                  opacity: exportPercent !== null ? 1 : 0.35,
+                }}
               />
             </div>
 
-            <p className="text-xs text-zinc-500">Encoding MP4…</p>
+            <p className="max-w-xs text-xs text-zinc-400">{exportStatus}</p>
           </div>
         )}
       </div>

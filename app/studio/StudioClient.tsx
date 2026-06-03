@@ -310,7 +310,7 @@ export function StudioClient({
                     : "border-zinc-800 bg-zinc-950/40 text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200"
                 }`}
               >
-                💥 GIF Animation
+                💥 GIF (120 fps)
               </button>
               <button
                 type="button"
@@ -395,9 +395,9 @@ export function StudioClient({
 
             {exportType === "gif" && (
               <div className="text-xs space-y-1.5 p-3 rounded-lg bg-zinc-950/60 border border-zinc-800 text-zinc-400">
-                <p className="font-semibold text-zinc-300">💥 Fast Sharing / Low-Res Loop</p>
+                <p className="font-semibold text-zinc-300">💥 GIF loop (120 fps)</p>
                 <p>
-                  Saves a lightweight, 256-color loop. Great for chat apps and quick social media posts (excludes sound).
+                  Encodes at the same 120 fps as MP4 for smooth motion. 256-color palette; larger files than MP4 (no sound).
                 </p>
               </div>
             )}
