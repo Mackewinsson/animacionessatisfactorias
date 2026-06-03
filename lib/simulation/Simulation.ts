@@ -51,6 +51,7 @@ export class Simulation {
   progress = 0;
   currentRadius = 0;
   currentBorderRadius = 0;
+  growThickness = 4;
   initialBallRadius = 0;
   isComplete = false;
 
@@ -190,6 +191,9 @@ export class Simulation {
     this.isComplete = false;
     this.activeBallHue = this.config.ballHue;
     this.applyScheme();
+    if (this.config.trailMode === "grow") {
+      this.growThickness = this.calculateGrowThickness();
+    }
     this.initialBallRadius = this.config.ringRadius;
     this.currentRadius = this.initialBallRadius;
     this.currentBorderRadius = this.config.borderRadius;
@@ -219,20 +223,93 @@ export class Simulation {
     this.elapsed = elapsedTime / 1000;
   }
 
-  private finalizeTrail(): void {
-    if (this.isComplete) return;
-    const { borderRadius, transparentBackground, trailMode } = this.config;
-    if (trailMode === "paint") {
-      this.scene.fillArenaPainted(this.trailColor, borderRadius, transparentBackground);
-    } else {
-      this.scene.fillArenaErased(this.trailColor, borderRadius, transparentBackground);
-    }
+  private markSimulationComplete(): void {
     this.clearPct = 1;
     this.progress = 1;
     this.velX = 0;
     this.velY = 0;
     this.isComplete = true;
     this.spawnConfetti();
+  }
+
+  private calculateGrowThickness(): number {
+    const targetMs = targetDurationMs(this.config);
+    let low = 0.5;
+    let high = 50.0;
+    let bestT = 4.0;
+    
+    // Binary search for the best thickness
+    for (let iter = 0; iter < 15; iter++) {
+      const mid = (low + high) / 2;
+      const simTime = this.simulateFastForward(mid);
+      
+      if (simTime < targetMs) {
+        // Finished too fast -> thickness is too high
+        high = mid;
+      } else {
+        // Finished too slow -> thickness is too low
+        low = mid;
+      }
+      bestT = mid;
+    }
+    return bestT;
+  }
+
+  private simulateFastForward(thickness: number): number {
+    let bx = 400; // CENTER_X
+    let by = 400 - this.config.borderRadius * 0.5;
+    let vx = this.config.initialSpeed;
+    let vy = 0;
+    let currentR = this.config.ringRadius;
+    let borderR = this.config.borderRadius;
+    let timeMs = 0;
+    const dt = 1000 / 120; // 120Hz
+    
+    while (borderR >= this.config.ringRadius * 2) {
+      vy += this.config.gravity;
+      bx += vx;
+      by += vy;
+      
+      const resolved = resolveCircleCollision(bx, by, vx, vy, borderR, currentR, this.config.restitution);
+      bx = resolved.ballX;
+      by = resolved.ballY;
+      vx = resolved.velX;
+      vy = resolved.velY;
+      
+      if (resolved.collided && isSignificantBounce(resolved.impactSpeed)) {
+        currentR += this.config.growRate;
+        if (currentR >= borderR - thickness / 2) {
+          borderR -= thickness;
+          if (borderR < this.config.ringRadius * 2) {
+            break;
+          }
+          currentR = this.config.ringRadius;
+          bx = 400;
+          by = 400;
+          vx = 2.5;
+          vy = 0;
+        }
+      }
+      timeMs += dt;
+      if (timeMs > 120000) break; // cap at 120s to avoid infinite loop
+    }
+    return timeMs;
+  }
+
+  private finalizeTrail(): void {
+    if (this.isComplete) return;
+    const { borderRadius, transparentBackground, trailMode } = this.config;
+    // Grow mode paints nested rings incrementally — never flood-fill the arena.
+    if (trailMode === "grow") {
+      this.markSimulationComplete();
+      return;
+    }
+    if (trailMode === "paint") {
+      this.scene.fillArenaPainted(this.trailColor, borderRadius, transparentBackground);
+    } else {
+      this.scene.fillArenaErased(this.trailColor, borderRadius, transparentBackground);
+    }
+    this.markSimulationComplete();
   }
 
   spawnConfetti(): void {
@@ -392,24 +469,22 @@ export class Simulation {
         this.prevBounceX = this.ballX;
         this.prevBounceY = this.ballY;
       } else if (this.config.trailMode === "grow") {
-        this.currentRadius += this.config.growRate;
-        // Check if trapped
-        const RING_THICKNESS = 4; // Matches the 4px stroke drawn in renderer
+        const RING_THICKNESS = this.growThickness;
         if (this.currentRadius >= this.currentBorderRadius - RING_THICKNESS / 2) {
           this.scene.drawMergedRing(this.currentBorderRadius, RING_THICKNESS, trailColor);
           this.currentBorderRadius -= RING_THICKNESS;
-          
+
           if (this.currentBorderRadius < this.config.ringRadius * 2) {
-            // Full!
-            this.finalizeTrail();
+            this.markSimulationComplete();
             return;
-          } else {
-            this.currentRadius = this.config.ringRadius;
-            this.ballX = CENTER_X;
-            this.ballY = CENTER_Y;
-            this.velX = (Math.random() - 0.5) * 5; // slight nudge
-            this.velY = 0;
           }
+
+          this.currentRadius = this.config.ringRadius;
+          this.ballX = CENTER_X;
+          this.ballY = CENTER_Y;
+          this.velX = (Math.random() - 0.5) * 5;
+          this.velY = 0;
+          this.clampBallInside();
         }
       }
       this.bounceCount += 1;
@@ -470,6 +545,7 @@ export class Simulation {
       progress: this.progress,
       frozen: this.isComplete,
       ballHue: this.activeBallHue,
+      growThickness: this.growThickness,
       confettiParticles: this.confettiParticles,
     });
   }
