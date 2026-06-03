@@ -25,7 +25,7 @@ export function buildPhysicsDefaults() {
   };
 }
 
-export type TrailMode = "erase" | "paint" | "weave";
+export type TrailMode = "erase" | "paint" | "weave" | "grow";
 
 export interface StudioConfig {
   watermarkText: string;
@@ -48,6 +48,7 @@ export interface StudioConfig {
   arenaColor: string;
   portraitPaddingColor: string;
   weaveLineWidth: number;
+  growRate: number;
 }
 
 export function normalizeStudioConfig(config: StudioConfig): StudioConfig {
@@ -66,17 +67,18 @@ export function normalizeStudioConfig(config: StudioConfig): StudioConfig {
     eraserStart,
     watermarkOpacity: clamp(config.watermarkOpacity, 0.05, 0.8),
     ballHue: ((config.ballHue % 1) + 1) % 1,
-    trailMode: config.trailMode === "paint" ? "paint" : config.trailMode === "weave" ? "weave" : "erase",
+    trailMode: ["paint", "weave", "grow"].includes(config.trailMode) ? config.trailMode : "erase",
     soundEnabled: config.soundEnabled ?? true,
     soundPalette: config.soundPalette ?? "pentatonic",
     transparentBackground: config.transparentBackground ?? false,
     // Paint mode uses a fixed complement ball vs trail; hue shifts break the look.
-    // Weave mode supports it for "Rainbow lines".
+    // Weave & Grow mode support it for "Rainbow lines".
     ballColorPerBounce:
       config.trailMode === "paint" ? false : (config.ballColorPerBounce ?? false),
     arenaColor: config.arenaColor ?? "#ffffff",
     portraitPaddingColor: config.portraitPaddingColor ?? "#000000",
     weaveLineWidth: clamp(config.weaveLineWidth ?? 2, 1, 20),
+    growRate: clamp(config.growRate ?? 2, 0.5, 20),
   };
 }
 
@@ -96,6 +98,7 @@ export const defaultStudioConfig = (): StudioConfig => {
     arenaColor: "#ffffff",
     portraitPaddingColor: "#000000",
     weaveLineWidth: 2,
+    growRate: 2,
   });
 };
 

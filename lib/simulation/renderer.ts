@@ -144,6 +144,22 @@ export class SceneBuffer {
     ctx.globalCompositeOperation = "source-over";
   }
 
+  /** Draw a permanent merged ring onto the background for "grow" mode */
+  drawMergedRing(
+    outerRadius: number,
+    thickness: number,
+    color: string,
+  ): void {
+    const ctx = this.ctx;
+    ctx.globalCompositeOperation = "source-over";
+    ctx.strokeStyle = color;
+    ctx.lineWidth = thickness;
+    ctx.beginPath();
+    // Stroke is drawn centered on the path, so subtract half the thickness
+    ctx.arc(CENTER_X, CENTER_Y, outerRadius - thickness / 2, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
   /** Paint stroke along the ball path. */
   drawPaintTrail(
     fromX: number,
@@ -243,7 +259,7 @@ export function drawBall(
   ballX: number,
   ballY: number,
   ringRadius: number,
-  opts?: { paintMode?: boolean; paintHue?: number },
+  opts?: { paintMode?: boolean; paintHue?: number; growMode?: boolean },
 ): void {
   const paintDisplay =
     opts?.paintMode && opts.paintHue !== undefined
@@ -251,23 +267,33 @@ export function drawBall(
       : null;
 
   const fill = paintDisplay?.fill ?? scheme.ball;
-  const highlight = paintDisplay?.highlight ?? scheme.ballHighlight;
-  const outline = paintDisplay?.outline;
-
+  
   ctx.beginPath();
   ctx.arc(ballX, ballY, ringRadius, 0, Math.PI * 2);
-  ctx.fillStyle = rgbCss(fill);
-  ctx.fill();
-
-  if (outline) {
-    ctx.strokeStyle = rgbCss(outline);
-    ctx.lineWidth = Math.max(3, ringRadius * 0.22);
+  
+  if (opts?.growMode) {
+    ctx.strokeStyle = rgbCss(fill);
+    ctx.lineWidth = 4;
     ctx.stroke();
-  }
+  } else {
+    ctx.fillStyle = rgbCss(fill);
+    ctx.fill();
+    
+    // Original highlight / outline for filled balls
+    const highlight = paintDisplay?.highlight ?? scheme.ballHighlight;
+    const outline = paintDisplay?.outline;
 
-  ctx.strokeStyle = rgbCss(highlight);
-  ctx.lineWidth = 2;
-  ctx.stroke();
+    if (outline) {
+      ctx.strokeStyle = rgbCss(outline);
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+    const highlightR = ringRadius * 0.4;
+    ctx.beginPath();
+    ctx.arc(ballX - highlightR, ballY - highlightR, highlightR, 0, Math.PI * 2);
+    ctx.fillStyle = rgbCss(highlight);
+    ctx.fill();
+  }
 }
 
 export function drawScene(
@@ -342,6 +368,7 @@ export function drawScene(
     drawBall(ctx, scheme, ballX, ballY, currentRadius, {
       paintMode: config.trailMode === "paint",
       paintHue: opts.ballHue ?? config.ballHue,
+      growMode: config.trailMode === "grow",
     });
   }
   drawWatermark(ctx, config.watermarkText, config.watermarkOpacity);
@@ -467,7 +494,7 @@ export function estimateTrailProgress(
   trailMode: TrailMode,
   arenaColor = "#ffffff",
 ): number {
-  if (trailMode === "weave") return 0;
+  if (trailMode === "weave" || trailMode === "grow") return 0;
 
   const scale = 6;
   const sw = Math.floor(WIDTH / scale);

@@ -1,4 +1,4 @@
-import { CINEMATIC_CONFIG } from "./constants";
+import { CINEMATIC_CONFIG, CENTER_X, CENTER_Y } from "./constants";
 import { generateColorScheme, rgbCss } from "./colors";
 import {
   SceneBuffer,
@@ -50,6 +50,7 @@ export class Simulation {
   startTime: number | null = null;
   progress = 0;
   currentRadius = 0;
+  currentBorderRadius = 0;
   initialBallRadius = 0;
   isComplete = false;
 
@@ -60,7 +61,7 @@ export class Simulation {
 
   private syncTrailColor(): void {
     this.trailColor =
-      this.config.trailMode === "paint" || this.config.trailMode === "weave"
+      this.config.trailMode === "paint" || this.config.trailMode === "weave" || this.config.trailMode === "grow"
         ? rgbCss(this.scheme.ball)
         : rgbCss(this.scheme.bg);
   }
@@ -156,13 +157,13 @@ export class Simulation {
   }
 
   private clampBallInside(): void {
-    const { borderRadius, restitution } = this.config;
+    const { restitution } = this.config;
     const resolved = resolveCircleCollision(
       this.ballX,
       this.ballY,
       this.velX,
       this.velY,
-      borderRadius,
+      this.currentBorderRadius,
       this.currentRadius,
       restitution,
     );
@@ -191,6 +192,7 @@ export class Simulation {
     this.applyScheme();
     this.initialBallRadius = this.config.ringRadius;
     this.currentRadius = this.initialBallRadius;
+    this.currentBorderRadius = this.config.borderRadius;
     this.beginAnimationClock();
     this.initArena();
     this.confettiParticles = [];
@@ -297,7 +299,7 @@ export class Simulation {
       return;
     }
 
-    // Always run the full targetTime — do not end early when cleared or at max ball size.
+    // Always run the full targetTime unless the arena is physically full (grow mode).
     if (this.progress >= 1.0) {
       this.finalizeTrail();
       return;
@@ -321,7 +323,7 @@ export class Simulation {
       this.ballY,
       this.velX,
       this.velY,
-      borderRadius,
+      this.currentBorderRadius,
       ballR,
       restitution,
     );
@@ -389,6 +391,25 @@ export class Simulation {
         }
         this.prevBounceX = this.ballX;
         this.prevBounceY = this.ballY;
+      } else if (this.config.trailMode === "grow") {
+        this.currentRadius += this.config.growRate;
+        // Check if trapped
+        if (this.currentBorderRadius - this.currentRadius <= 2) {
+          this.scene.drawMergedRing(this.currentBorderRadius, this.currentRadius, trailColor);
+          this.currentBorderRadius -= this.currentRadius;
+          
+          if (this.currentBorderRadius < this.config.ringRadius * 2) {
+            // Full!
+            this.finalizeTrail();
+            return;
+          } else {
+            this.currentRadius = this.config.ringRadius;
+            this.ballX = CENTER_X;
+            this.ballY = CENTER_Y;
+            this.velX = (Math.random() - 0.5) * 5; // slight nudge
+            this.velY = 0;
+          }
+        }
       }
       this.bounceCount += 1;
       this.shiftBallColorOnBounce();

@@ -206,6 +206,7 @@ export function CustomizePanel({
             <option value="erase">Erase arena (classic ASMR)</option>
             <option value="paint">Paint strokes</option>
             <option value="weave">Weave string art</option>
+            <option value="grow">Growing Ring (Matryoshka)</option>
           </select>
         </label>
         
@@ -236,6 +237,37 @@ export function CustomizePanel({
                 className="rounded border-zinc-700 bg-zinc-950 text-violet-600 focus:ring-violet-500 w-4 h-4 cursor-pointer"
               />
               <span className="text-sm text-zinc-300">Rainbow lines</span>
+            </label>
+          </>
+        )}
+
+        {config.trailMode === "grow" && (
+          <>
+            <label className="block space-y-2 pt-2 border-t border-zinc-800/50">
+              <div className="flex justify-between">
+                <span className="text-sm text-zinc-400">Growth per bounce</span>
+                <span className="text-sm text-zinc-500">+{config.growRate}px</span>
+              </div>
+              <input
+                type="range"
+                min="0.5"
+                max="10"
+                step="0.5"
+                disabled={disabled}
+                value={config.growRate}
+                onChange={(e) => patch({ growRate: Number(e.target.value) })}
+                className="w-full accent-violet-500"
+              />
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer pt-1">
+              <input
+                type="checkbox"
+                checked={config.ballColorPerBounce}
+                disabled={disabled}
+                onChange={(e) => patch({ ballColorPerBounce: e.target.checked })}
+                className="rounded border-zinc-700 bg-zinc-950 text-violet-600 focus:ring-violet-500 w-4 h-4 cursor-pointer"
+              />
+              <span className="text-sm text-zinc-300">Rainbow rings</span>
             </label>
           </>
         )}
