@@ -121,6 +121,14 @@ export class Simulation {
     } else {
       this.syncTrailColor();
     }
+    if (
+      this.config.trailMode === "grow" &&
+      (this.config.targetTime !== prev.targetTime ||
+        this.config.growRate !== prev.growRate ||
+        this.config.trailMode !== prev.trailMode)
+    ) {
+      this.growThickness = this.calculateGrowThickness();
+    }
     if (!this.isComplete) {
       this.clampBallInside();
     }
